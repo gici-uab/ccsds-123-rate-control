@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="infima" default="compile" basedir=".">
+	<property name="name" value="infima" description="Project name."/>
+	<property name="src" value="src" description="The sources of the project."/>
+	<property name="build" value="build" description="The build files (.class) of the project."/>
+	<property name="dist"  value="dist" description="The final file (.jar) of the project."/>
+	<property name="docs"  value="docs" description="The API documentation."/>
+	<property name="workDir"  value="workDir" description="The work directory of the project."/>
+
+	<target name="compile" description="Compile the project. The class files are saved in build directory and the .jar file in dist directory.">
+		<delete file="${dist}/${name}.jar"/>
+		<javac srcdir="${src}" destdir="${build}" nowarn="off" optimize="on" deprecation="on" debug="on" includeAntRuntime="false"/>
+		<jar destfile="${dist}/${name}.jar" basedir="${build}"/>
+	</target>
+
+	<target name="doc" description="Generate the API documentation for the project.">
+		<delete dir="${docs}/api"/>
+		<mkdir dir="${docs}/api"/>
+		<javadoc destdir="${docs}/api" author="true" access="private" windowtitle="INFIMA API">
+			<fileset dir="${src}" defaultexcludes="yes">
+				<include name="*/**.java" />
+				<include name="*/*/**.java" />
+			</fileset>
+			<doctitle>
+				<![CDATA[<h1>INFIMA API</h1>]]>
+			</doctitle>
+			<bottom>
+				<![CDATA[
+					Copyright (C) 2013 Francesc Auli-Llinas<br><br>
+					This program is distributed under the BOI License.<br>
+					This program is distributed in the hope that it will be useful, but without any warranty; without even the implied warranty of merchantability or fitness for a particular purpose.<br>
+					You should have received a copy of the BOI License along with this program. If not, see <a href="http://www.deic.uab.cat/~francesc/software/license/">http://www.deic.uab.cat/~francesc/software/license/</a>.<br><br>
+				]]>
+			</bottom>
+		</javadoc>
+	</target>
+
+	<target name="clean">
+		<delete includeemptydirs="true">
+			<fileset dir="${build}" includes="**/*"/>
+		</delete>
+		<delete>
+			<fileset dir="${dist}" includes="*.*"/>
+		</delete>
+		<delete dir="${docs}/api"/>
+	</target>
+</project>

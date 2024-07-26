@@ -1,0 +1,4184 @@
+/*
+ * EMPORDA Software - More than an implementation of MHDC Recommendation for  Image Data Compression
+ * Copyright (C) 2011  Group on Interactive Coding of Images (GICI)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for  more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Group on Interactive Coding of Images (GICI)
+ * Department of Information and Communication Engineering
+ * Autonomous University of Barcelona
+ * 08193 - Bellaterra - Cerdanyola del Valles (Barcelona)
+ * Spain
+ *
+ * http://gici.uab.es
+ * http://sourceforge.net/projects/emporda
+ * gici-info@deic.uab.es
+ */
+
+package emporda;
+
+import GiciStream.FileBitOutputStream;
+
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.BitSet;
+import java.util.Collections;
+import java.util.List;
+
+
+import GiciContextModel.ContextModelling;
+import GiciContextModel.ContextProbability;
+import GiciContextModel.ContextSymbolModelling;
+import GiciContextModel.IntegerContextProbability;
+import GiciContextModel.IntegerContextModelling;
+import GiciEntropyCoder.EntropyBlockCoder.EntropyBlockCoder;
+import GiciEntropyCoder.EntropyIntegerCoder.EntropyIntegerCoder;
+import GiciEntropyCoder.ArithmeticCoder.ArithmeticCoderFLW;
+import GiciEntropyCoder.ArithmeticCoder.DumbMQCoder;
+import GiciEntropyCoder.InterleavedEntropycoder.*;
+import GiciEntropyCoder.Interface.EntropyCoder;
+import GiciException.ParameterException;
+import GiciFile.RawImage.OrderConverter;
+import GiciFile.RawImage.RawImage;
+import GiciFile.RawImage.RawImageIterator;
+import GiciStream.BitOutputStream;
+import GiciStream.MemBitOutputStream;
+import GiciStream.ByteStream;
+import GiciPredictor.*;
+
+/**
+ * Coder class of EMPORDA application. This is class uses the predictor and the type of coder chosen 
+ * in order to encode the image
+ * <p>
+ *
+ * @author Group on Interactive Coding of Images (GICI)
+ * @version 1.0
+ */
+public class Coder {
+
+	private final int MAXQSTEP = 512;
+	private final File file;
+	private final FileOutputStream fileStream;
+	private final BitOutputStream fbos;
+	private IntegerContextModelling icm;
+	private ContextSymbolModelling cmsymbol;
+	private IntegerContextProbability icp;
+	private InterleavedEntropyEncoder iec;
+	private DumbMQCoder dmq;
+	private List<EntropyIntegerCoder> ecList;
+	private List<ArithmeticCoderFLW> acList;
+	private List<ContextProbability> cpList;
+	private List<int[][]> predictedSamplesListBSQ;
+	private List<int[][][]> predictedSamplesListBI;
+	private List<ByteStream> ByteStreamList;
+	private List<BitOutputStream> mbos;
+	private List<Predictor> predictorList;
+	
+	private double entropy = 0;
+	
+	private Parameters parameters;
+	private int[] geo;
+	private Predictor predictorRC;
+	private EntropyCoder ecRC;
+	private ContextModelling cmRC;
+	private ContextProbability cpRC;
+	
+	
+	private Predictor predictor;
+	private EntropyCoder ec;
+	private ContextModelling cm;
+	private ContextProbability cp;
+	
+	private int[] originalPixelOrder;
+	private int[] pixelOrderTransformation;
+	private String inputFile;
+	private Quantizer uq;
+	private int quantizationMode;
+	private float targetRate = 0;
+	private float T = 0;
+	private float numbitsWritten = 0;
+	private float numbitsWrittenBefore = 0;
+	private float adaptiveTargetRate;
+	//private float extraRate;
+	private List<Integer> quantizationStepList = null;
+	private int RCStrategy = 0;
+	private int N = 0;
+	private int contextModel = 0;
+	private int probabilityModel = 0;
+	private int quantizerProbabilityLUT = 0;
+	private int numBitsPrecision = 0;
+	private int IntegerContexts = 0;
+	private int UPDATE_PROB0 = 0;
+	private int WINDOW_PROB = 0;
+	private int components;
+	private	int height;
+	private int width;
+	private float eta = 0;
+	private float deviationRate = 0;
+	private int quantizer = 0;
+	private FileWriter fw = null;
+	private PrintWriter pw = null;
+	private int samplePrediction = 0;
+	//private SamplePrediction samplePredictor = null;
+	private int MAXBITS = 32;
+	int numOfContexts = 0;
+	int coderWordLength = 0;
+	int bufferSize = 1;
+	int [][][] linePreviousBuffer = null;
+	int [][][] predictedLinePreviousBuffer = null;
+	double [] finalBinaryEntropies = null;
+	double [] MSEs = null;
+	double [] VARs = null;
+	double [][] VARs2 = null;
+	double [][] finalBinaryEntropies2 = null;
+	double [][] finalBinaryEntropies2Real = null;
+	double [][] MSEs2 = null;
+	double [][] eumas2 = null;
+	
+	int predictedLinesRef[][][] = null;
+	int buffer[][][] = null;
+	int predictedLines[][][] = null;
+	int [] Qsteps = null;
+	int [][] Qsteps2 = null;
+	double minDiffRate = Double.MAX_VALUE;
+	double euma = 0;
+	/**
+	 * Bit masks (employed when coding integers).
+	 * <p>
+	 * The position in the array indicates the bit for which the mask is computed.
+	 */
+	protected static final int[] BIT_MASKS2 = {1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5, 1 << 6,
+	1 << 7, 1 << 8, 1 << 9, 1 << 10, 1 << 11, 1 << 12, 1 << 13, 1 << 14, 1 << 15, 1 << 16, 1 << 17,
+	1 << 18, 1 << 19, 1 << 20, 1 << 21, 1 << 22, 1 << 23, 1 << 24, 1 << 25, 1 << 26, 1 << 27,
+	1 << 28, 1 << 29, 1 << 30, 1 << 31, 1 << 32};
+	
+	protected static final int[] BIT_MASKS = {1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5, 1 << 6, 1 << 7, 1 << 8, 1 << 9};
+	/**
+	 * Qsteps.
+	 * <p>
+	 * The position in the array indicates the Qstep
+	 */
+	//protected static final int[] QSTEPS = {1, 2, 4, 6, 8, 10, 12, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128, 192, 256, 384, 512, 1024, 2048, 4096, 8192};
+	protected static final int[] QSTEPS = {1};
+	
+	ByteStream stream;
+	
+	/**
+	 * This variable indicates if debug information must be shown or not
+	 */
+	private boolean debugMode = false;
+	
+	/**
+	 * Constructor of Coder. It receives the name of the output file and
+	 * the parameters needed for the headers.
+	 *
+	 * @param outputFile the file where the result of the compressing will be saved
+	 * @param inputFile the file that contain the image
+	 * @param sampleOrder is the sample order of the image in the input file.
+	 * @param parameters all the information about the compression process
+	 * @param debugMode indicates if debug information must be shown
+	 * @param numberOfBitplanesToDecode 
+	 * @throws IOException when something goes wrong and writing must be stopped
+	 * @throws ParameterException when an invalid parameter is detected
+	 */
+	public Coder(String outputFile, String inputFile, int sampleOrder, final Parameters parameters, 
+			boolean debugMode, Quantizer uq, int quantizer, int quantizationMode, int windowsize, float targetRate, int segmentSize, int contextModel, int probabilityModel, int quantizerProbabilityLUT, int encoderWP, int encoderUP, int RCStrategy, int samplePrediction, int bufferSize)
+			throws IOException, ParameterException {
+		
+		switch(RCStrategy){
+			case 0:
+				//quantizationStepList = new ArrayList<Integer>(Arrays.asList(1,3,6,12,15,17,20,23,23,30,33,49,65,81,97,113,129,145,161,177,193,209,225,241,257,273,289,305,321,337,353,369,385,401,417,433,449,465,481,497,513,529,545));//
+				quantizationStepList = new ArrayList<Integer>(Arrays.asList(3,6,12,18,30));//3,6,12,18,24,30//3,6,12,16,20,28,36,44,60,76,100
+				break;
+			case 1:
+				quantizationStepList = new ArrayList<Integer>(Arrays.asList(3,6,12,18,30,42));//3,6,12,18,24,30//3,6,12,16,20,28,36,44,60,76,100
+				break;
+		}
+			
+		geo = parameters.getImageGeometry();
+		linePreviousBuffer = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		predictedLinePreviousBuffer = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		finalBinaryEntropies = new double [geo[CONS.HEIGHT]];
+		file = new File(outputFile);
+		file.delete();
+		
+		fileStream = new FileOutputStream(file);
+		fbos = new FileBitOutputStream( new BufferedOutputStream(fileStream));
+		this.inputFile = inputFile;
+		this.uq = uq;
+		this.quantizationMode = quantizationMode;
+		this.targetRate = targetRate;
+		this.eta = this.targetRate;
+		this.contextModel = contextModel;
+		this.probabilityModel =  probabilityModel;
+		this.quantizerProbabilityLUT = quantizerProbabilityLUT;
+		this.WINDOW_PROB = encoderWP;
+		this.UPDATE_PROB0 = encoderUP;
+		this.RCStrategy = RCStrategy;
+		this.quantizer = quantizer;
+		this.samplePrediction = samplePrediction;
+		this.bufferSize = bufferSize;
+		
+		if(probabilityModel == 1 && UPDATE_PROB0 > WINDOW_PROB){
+			throw new Error("For this Probability Model option (-pm) UPDATE_PROB0 must be minor than WINDOW_PROB.");		
+		}
+		if(probabilityModel == 2 && UPDATE_PROB0 != WINDOW_PROB){
+			throw new Error("For this Probability Model option (-pm) UPDATE_PROB0 equal than WINDOW_PROB.");		
+		}
+		
+		if (quantizationMode == 1){ //Fixed Rate
+			adaptiveTargetRate = targetRate;
+			
+			mbos = new ArrayList<BitOutputStream>();		
+			for(int i = 0; i < N; i++){
+				mbos.add(new MemBitOutputStream());
+			}
+		}
+		
+		
+		switch(sampleOrder) {
+			case 0: //BSQ
+				originalPixelOrder = OrderConverter.DIM_TRANSP_IDENTITY;
+				if (parameters.sampleEncodingOrder == CONS.BAND_SEQUENTIAL) {
+					pixelOrderTransformation = OrderConverter.DIM_TRANSP_IDENTITY;
+				}else {
+					pixelOrderTransformation = OrderConverter.DIM_TRANSP_BSQ_TO_BIL;
+				}
+				break;
+			case 1: //BIL
+				originalPixelOrder = OrderConverter.DIM_TRANSP_BSQ_TO_BIL;
+				if (parameters.sampleEncodingOrder == CONS.BAND_SEQUENTIAL) {
+					pixelOrderTransformation = OrderConverter.DIM_TRANSP_BIL_TO_BSQ;
+				}else {
+					pixelOrderTransformation = OrderConverter.DIM_TRANSP_IDENTITY;
+				}
+				break;
+			case 2: //BIP
+				originalPixelOrder = OrderConverter.DIM_TRANSP_BSQ_TO_BIP;
+				if (parameters.sampleEncodingOrder == CONS.BAND_SEQUENTIAL) {
+					pixelOrderTransformation = OrderConverter.DIM_TRANSP_BIP_TO_BSQ;
+				}else {
+					pixelOrderTransformation = OrderConverter.DIM_TRANSP_BIP_TO_BIL;
+				}
+				break;
+		}
+		this.parameters = parameters;
+		
+		
+		components = geo[CONS.BANDS];
+		height = geo[CONS.HEIGHT];
+		width = geo[CONS.WIDTH];
+
+		
+		this.debugMode = debugMode;
+	
+		//TODO
+		if (quantizationMode == 0){ //Fixed Quantization Step
+			this.predictor = new Predictor(parameters);
+			if(quantizer == 10){
+				fw = new FileWriter("quantizer.data",false);
+				pw = new PrintWriter(fw);
+			}
+		}else if (quantizationMode == 1){ //Fixed Rate
+			if(this.RCStrategy == 0 || this.RCStrategy == 1){
+				this.predictor = new Predictor(parameters);
+				this.predictorRC = new Predictor(parameters);
+			}else{
+				this.predictorList = new ArrayList<Predictor>();
+				for (int i = 0; i < N; i++){
+					predictorList.add(new Predictor(parameters));
+				}
+			}
+		}
+		
+	}
+	
+
+	/**
+	 * Writes the header with all the needed information for the decompression process.
+	 *
+	 * @param parameters all information about the compression process
+	 * @throws IOException when something goes wrong and writing must be stopped
+	 * @throws ParameterException when an invalid parameter is detected
+	 */
+	public void writeHeader(final Parameters parameters) throws IOException, ParameterException {
+		
+		CoderHeader ch = new CoderHeader(fbos, debugMode, parameters);
+		ch.imageHeader();
+		ch.predictorMetadata();
+		ch.entropyCoderMetadata();
+		ch = null;
+	}
+
+	/**
+	 * Compiles all the information needed to create the entropy coder,
+	 * and creates it.
+	 * @param verbose indicates whether to display information
+	 */
+	// --------- New argument added to control the entropyCoder
+	private void startCoder(boolean verbose) {
+		
+		
+		
+		switch(parameters.entropyCoderType)
+		{
+			case CONS.SAMPLE_ADAPTIVE_ENCODER:
+				try {
+					if (quantizationMode == 0 || (quantizationMode == 1 && RCStrategy == 0)){ //Fixed Quantization Step
+						ec = new EntropyIntegerCoder(
+								fbos,
+								parameters.initialCountExponent,
+								parameters.accInitConstant,
+								parameters.rescalingCounterSize,
+								parameters.dynamicRange,
+								parameters.unaryLengthLimit,
+								parameters.getAccInitTable(),
+								parameters.getImageGeometry()[CONS.BANDS],
+								parameters.getImageGeometry()[CONS.HEIGHT],
+								parameters.getImageGeometry()[CONS.WIDTH]);
+					} else if (quantizationMode == 1 ){ //Fixed Rate
+						ecList = new ArrayList<EntropyIntegerCoder>();
+						for(int i = 0; i < N; i++){
+							ecList.add(new EntropyIntegerCoder(mbos.get(i),
+									parameters.initialCountExponent,
+									parameters.accInitConstant,
+									parameters.rescalingCounterSize,
+									parameters.dynamicRange,
+									parameters.unaryLengthLimit,
+									parameters.getAccInitTable(),
+									parameters.getImageGeometry()[CONS.BANDS],
+									parameters.getImageGeometry()[CONS.HEIGHT],
+									parameters.getImageGeometry()[CONS.WIDTH]));
+						}
+					}
+				} catch (ParameterException e) {
+					e.printStackTrace();
+					System.exit(-1);
+				}
+				if(verbose || debugMode) {
+					System.out.println("debug Info: Starting sample adaptive coder");
+				}
+				
+				break;
+			case CONS.BLOCK_ADAPTIVE_ENCODER:
+				ec =  new EntropyBlockCoder(
+						fbos,
+						parameters.blockSize,
+						parameters.dynamicRange,
+						parameters.referenceSampleInterval,
+						verbose);
+				if(verbose || debugMode) {
+					System.out.println("debug Info: Starting block adaptive coder");
+				}
+				
+				break;
+			
+			case CONS.SYMBOL_ARITHMETIC_ENCODER_FLW:
+				 cmsymbol = new ContextSymbolModelling();
+				
+			case CONS.ARITHMETIC_ENCODER_FLW:
+				if (quantizationMode == 0){ //Fixed Quantization Step
+					cm = new ContextModelling(contextModel);
+					numOfContexts = cm.getNumberOfContexts(MAXBITS);
+					numBitsPrecision = 15;
+					coderWordLength = 48;
+					cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+					ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+				
+				}else if (quantizationMode == 1 ){ //Fixed Rate
+					
+					if(this.RCStrategy == 0 || this.RCStrategy == 1){
+						cm = new ContextModelling(contextModel);
+						numOfContexts = cm.getNumberOfContexts(MAXBITS);
+						numBitsPrecision = 15;
+						coderWordLength = 48;
+						cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+						ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+						
+					}else{
+						cm = new ContextModelling(contextModel);
+						cpList = new ArrayList<ContextProbability>();
+						acList = new ArrayList<ArithmeticCoderFLW>();
+						
+						
+						predictedSamplesListBSQ = new ArrayList<int[][]>();
+						predictedSamplesListBI = new ArrayList<int[][][]>();
+						
+						ByteStreamList = new ArrayList<ByteStream>();
+						
+						for(int i = 0; i < N; i++){
+							numOfContexts = cm.getNumberOfContexts(MAXBITS);
+							numBitsPrecision = 15;
+							coderWordLength = 48;
+							cpList.add(new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0));
+							acList.add(new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts));
+							
+							ByteStreamList.add(new ByteStream());
+							
+							if(parameters.sampleEncodingOrder == CONS.BAND_SEQUENTIAL){
+								predictedSamplesListBSQ.add(new int[parameters.getImageGeometry()[CONS.HEIGHT]][parameters.getImageGeometry()[CONS.WIDTH]]);
+							}
+							if(parameters.sampleEncodingOrder == CONS.BAND_INTERLEAVE){
+								predictedSamplesListBI.add(new int[parameters.getImageGeometry()[CONS.BANDS]][2][parameters.getImageGeometry()[CONS.WIDTH]]);
+							}
+						}
+					}
+					
+					
+				}
+				break;
+				
+			case CONS.INTERLEAVE_ENTROPY_CODER:
+				cm = new ContextModelling(contextModel);
+				numOfContexts = cm.getNumberOfContexts(MAXBITS);
+				numBitsPrecision = 15;
+				coderWordLength = 48;
+				cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+				iec = new InterleavedEntropyEncoder();
+				break;
+			case CONS.DUMB_MQ_ENCODER:
+				cm = new ContextModelling(contextModel);
+				numOfContexts = cm.getNumberOfContexts(MAXBITS);
+				numBitsPrecision = 15;
+				coderWordLength = 48;
+				cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+				dmq = new DumbMQCoder((OutputStream) fbos);
+				break;
+			case CONS.ENTROPY:
+				cm = new ContextModelling(contextModel);
+				numOfContexts = cm.getNumberOfContexts(MAXBITS);
+				numBitsPrecision = 15;
+				coderWordLength = 48;
+				cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+				break;
+				
+			case CONS.AIC:
+				IntegerContexts = 100;
+				icm = new IntegerContextModelling(contextModel, IntegerContexts);
+				numBitsPrecision = 15;
+				coderWordLength = 48;
+				icp = new IntegerContextProbability(probabilityModel, numBitsPrecision, quantizerProbabilityLUT, IntegerContexts);
+				//ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+				break;
+			
+		}
+		
+	}
+
+	/**
+	 * Runs the EMPORDA coder algorithm to compress the image.
+	 * 
+	 * @param verbose indicates whether to display information
+	 * @throws Exception 
+	 */
+	// New argument added to control the entropy coder ---------------------
+	public void code(boolean verbose) throws Exception {
+		startCoder(verbose/*entropyCoder*/);
+		
+		if (parameters.sampleEncodingOrder == CONS.BAND_SEQUENTIAL) {
+			if (quantizationMode == 0 && targetRate == 0){
+				codeBSQ(verbose); //Fixed quantization step mode
+			}
+			if (quantizationMode == 1 && targetRate != 0){
+				codeBSQRateControl(verbose);
+			}
+		} else {
+			if (quantizationMode == 0){
+				if(parameters.entropyCoderType == 0 || parameters.entropyCoderType == 1) codeBI(verbose); //Fixed quantization step mode
+				if(parameters.entropyCoderType == 2)  codeBIAC(verbose);
+				
+			}
+			else if (quantizationMode == 1){
+				if(parameters.entropyCoderType == CONS.SAMPLE_ADAPTIVE_ENCODER || parameters.entropyCoderType == CONS.BLOCK_ADAPTIVE_ENCODER)
+					switch(RCStrategy){
+					case 0:
+						codeBIRateControlValsesia(verbose); //Fixed rate mode
+						break;
+					case 1:
+						codeBIRateControlNew(verbose); //Fixed rate mode
+						break;
+					case 2:
+						
+						break;
+					}
+					
+				if(parameters.entropyCoderType == CONS.ARITHMETIC_ENCODER_FLW){
+					switch(RCStrategy){
+					case 0:
+						codeBIACRateControlValsesia(verbose); //Fixed rate mode
+						break;
+					case 1:
+						codeBIACRateControlProposal1(verbose); //Constant quality proposal 1
+						break;
+					case 2:
+						codeBIACRateControlProposal2(verbose); //Constant quality proposal 2
+						break;
+					case 4:
+						codeBIACRateControlProposal2(verbose); //Constant quality proposal 2
+						break;
+					case 3:
+						codeBIACRateControlProposal3(verbose); //Constant quality proposal 2
+						break;
+					case 6:
+						codeBIACRateControlProposal3(verbose); //Constant quality proposal 2
+						break;
+					case 8:
+						codeBIACRateControlProposal2(verbose); //Constant quality proposal 2
+						break;
+					}
+				}
+			}
+			
+		}
+		
+		int oddBytes = (int) (file.length() % parameters.outputWordSize);
+		if (oddBytes != 0) {
+			byte b[] = new byte[parameters.outputWordSize - oddBytes];
+			Arrays.fill(b, (byte)0);
+			fileStream.write(b);
+		}
+		fileStream.close();
+		
+		if(parameters.entropyCoderType != CONS.ENTROPY){
+			if(parameters.entropyCoderType == CONS.AIC){
+				System.out.println(entropy/(float)(geo[CONS.BANDS]*geo[CONS.HEIGHT]*geo[CONS.WIDTH]));
+			}else{
+				System.out.println(file.length()*8/(float)(geo[CONS.BANDS]*geo[CONS.HEIGHT]*geo[CONS.WIDTH]));
+			}
+		}else{
+			System.out.println(entropy/(float)(geo[CONS.BANDS]*geo[CONS.HEIGHT]*geo[CONS.WIDTH]));	
+		}
+		
+
+		if (verbose) {
+			//System.out.println("\rWritten " + file.length() + " bytes  ");
+			System.out.println("\rRate " + file.length()*8/(float)(geo[CONS.BANDS]*geo[CONS.HEIGHT]*geo[CONS.WIDTH]) + " bpppb \n");
+		}
+
+	}
+	
+
+	/**
+	 * Returns the max value of the samples one they have been predicted
+	 *
+	 * @param predicted Samples
+	 * @return the maximum value of the predicted Samples.
+	 */
+	public static int[] getElementCount(int[][] predictedSamples){
+		
+		int[] elementData = new int[2];
+		elementData[0] = 0; // max
+		elementData[1] = Integer.MAX_VALUE; 
+		int value = 0;
+		for (int y = 0; y < predictedSamples.length; y ++) {
+			for (int x = 0; x < predictedSamples[0].length; x ++) {
+				value = predictedSamples[y][x];
+				if(value > elementData[0]) elementData[0] = value;
+				if(value < elementData[1]) elementData[1] = value;
+			}
+		}
+		
+		return elementData;
+	}
+	
+	
+	
+	
+	
+	
+
+	/**
+	 * BSQ Arithmetic Coder with sign coding
+	 * @param predictedSamples
+	 * @param Previous1
+	 * @param Previous2
+	 * @param z
+	 */
+	private void BSQACWithSign(int[][] predictedSamples, int[][] Previous1, int[][] Previous2, int z){
+		boolean realBit = false;
+		boolean signBit = false;
+		int context = -1;
+		int prob = -1;
+		int [][] MapSign = new int [height][width];//1 --> positive, -1 --> negative
+		int [][] statusMapSignificance = new int [height][width];
+		
+		for (int y = 0; y < height; y ++) {
+		for (int x = 0; x < width; x ++) {
+			MapSign[y][x] = (int)Math.signum(predictedSamples[y][x]);
+			predictedSamples[y][x] = Math.abs(predictedSamples[y][x]);
+		}}
+		
+		//this for goes from 32 to 0, since in 15th bit the sign is stored
+		for (int bit = MAXBITS-2; bit >= 0; bit--){
+		for (int y = 0; y < height; y ++) {
+		for (int x = 0; x < width; x ++) {
+			realBit = (predictedSamples[y][x] & BIT_MASKS2[bit]) != 0;
+			//check first time significant
+			if(realBit == true && statusMapSignificance[y][x] == 0){
+				statusMapSignificance[y][x] = 1;
+				
+				if(MapSign[y][x] == 1){
+					signBit = true;
+				}else{
+					if(MapSign[y][x] == -1){
+						signBit = false;
+					}
+				}
+							 
+				///////////////////////// realBit coding ///////////////////////
+				context = cm.getContext(predictedSamples, Previous1, Previous2, z, y, x, bit);//get context   --------> 6.18 bps
+				//context = cm.getContextSignificance(statusMapSignificance, y, x);//get context					--------> 4.06 bps
+				prob = cp.getProbability(context);//get probability for the computed context
+				cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+				ec.encodeBitProb(realBit, prob);//encode the bit using the specific probability
+				ec.encodeBit(signBit);
+			}else{
+				context = cm.getContext(predictedSamples, Previous1, Previous2, z, y, x, bit);//get context
+				prob = cp.getProbability(context);//get probability for the computed context
+				cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+				ec.encodeBitProb(realBit, prob);//encode the bit using the specific probability
+				//ec.encodeBit(realBit);//encode the bit using the specific probability
+			}
+			
+					
+		}}}
+	}
+	
+	/**
+	 * BSQ Arithmetic Coder
+	 * @param predictedSamples
+	 * @param Previous1
+	 * @param Previous2
+	 * @param z
+	 */
+	private void BSQAC(int[][] predictedSamples, int[][] Previous1, int[][] Previous2, int z){
+		boolean realBit = false;
+		int context = -1;
+		for (int bit = MAXBITS-1; bit >= 0; bit--){
+		for (int y = 0; y < height; y ++) {
+		for (int x = 0; x < width; x ++) {
+			realBit = (predictedSamples[y][x] & BIT_MASKS2[bit]) != 0;
+			context = cm.getContext(predictedSamples, Previous1, Previous2, z, y, x, bit);//get context
+			int prob = cp.getProbability(context);//get probability for the computed context
+			cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+			ec.encodeBitProb(realBit, prob);//encode the bit using the specific probability
+					
+		}}}
+		//System.out.println(z+" "+(double)ec.getNumBitsWritten()/((double)height*(double)width));
+		ec.resetNumBitsWritten();
+	}
+
+	/**
+	 * Encodes an image in BSQ order using Fixed Quantization Step Mode
+	 *
+	 * @param verbose indicates whether to display information
+	 * @throws Exception 
+	 */
+//	BEFORE DOING THIS IS NECESSARY INITIALISATE BUFFERED WRITER BR_HIST AS CODER ARGUMENT BufferedWriter br_hist = null;
+
+	private void codeBSQ(boolean verbose) throws Exception {
+		int bands[][][] = new int[parameters.numberPredictionBands + 1][][];
+		int value;
+		boolean realBit = false;
+		int context = -1;
+		if(verbose || debugMode) {
+			System.out.println("Coding BSQ");
+		}
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			
+			if(debugMode) {
+				System.err.println("debugInfo: RawImage created");
+			}
+			
+			int Previous1[][] = new int[height][width];
+			int Previous2[][] = new int[height][width];
+			if(icm != null) Previous2 = new int[height][width];
+				
+			
+			for (int z = 0; z < components; z ++) {
+				
+				if (verbose) {
+					System.out.print("\rCoding band: " + z);
+				}
+				
+				prepareBands(z, bands, it, height, width);
+				
+				int predictedSamples[][] = new int[height][width];
+				
+				switch(samplePrediction){
+				case 2:
+					//samplePredictor = new SamplePrediction(parameters);
+					break;
+				}
+							
+				
+				switch(parameters.entropyCoderType){
+				case CONS.SAMPLE_ADAPTIVE_ENCODER://Entropy Integer Code
+					ec.init(z);
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						value = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+						ec.codeSample(value, y*width + x, z);
+						ec.update(value, y*width + x, z);
+						ec.updateHistogram(value);
+					}}
+					break;
+				case CONS.BLOCK_ADAPTIVE_ENCODER://Block Adaptative Coder
+					ec.init(z);
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						value = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+						ec.codeSample(value, y*width + x, z);
+						ec.update(value, y*width + x, z);
+						ec.updateHistogram(value);
+					}}
+					break;
+	
+				case CONS.ARITHMETIC_ENCODER_FLW:
+					if(z == 0){
+						ec.restartEncoding();
+						ec.init(z);
+					}
+					cp.reset();
+					
+					/*if(z == 0){
+						output = new DataOutputStream(new FileOutputStream("predicted"+this.inputFile,false));
+					}*/
+				
+					
+					/*try {
+					output.writeShort(predictedSamples[y][x]);
+					} catch (IOException e) {
+						System.err.println("No s'ha pogut ESCRIURE en el fitxer.");
+					}*/
+					switch(samplePrediction){
+						case 0:
+							for (int y = 0; y < height; y ++) {
+							for (int x = 0; x < width; x ++) {
+								predictedSamples[y][x] = bands[parameters.numberPredictionBands][y][x];			
+							}}
+							BSQAC(predictedSamples, Previous1, Previous2, z);
+							break;
+						case 1:
+							
+							for (int y = 0; y < height; y ++) {
+							predictor.resetMSE();
+							for (int x = 0; x < width; x ++) {
+								predictedSamples[y][x] = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);		
+							}
+							//System.out.println(z+":"+y+":"+predictor.getMSE(width)+":x");
+							
+							}
+							
+							BSQAC(predictedSamples, Previous1, Previous2, z);
+							break;
+						case 2:
+							for (int y = 0; y < height; y ++) {
+							for (int x = 0; x < width; x ++) {
+								//int prediction = samplePredictor.predict(y, x);
+								//predictedSamples[y][x] = samplePredictor.getMappedResidual(y, x, prediction);
+							}}
+							BSQACWithSign(predictedSamples, Previous1, Previous2, z);
+						break;
+					}
+						
+					
+					break;
+					
+				case CONS.SYMBOL_ARITHMETIC_ENCODER_FLW:
+					//System.out.println("SYMBOL_ARITHMETIC_ENCODER_FLW: "+samplePrediction);
+					
+					
+					switch(samplePrediction){
+						
+						case 1:
+							for (int y = 0; y < height; y ++) {
+							for (int x = 0; x < width; x ++) {
+								//predictedSamples[y][x] = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);	
+								predictedSamples[y][x] = bands[parameters.numberPredictionBands][y][x];	
+							}}
+							if(z > 1){
+								cmsymbol.setData(Previous2, Previous1, predictedSamples, 0, z);
+								cmsymbol.buildProbabilityTable(z);
+								double entropy = cmsymbol.getEntropy();
+								double entropyINBPS = entropy / ((double)height*(double)width);
+								System.out.println(z+" "+entropyINBPS);
+							}
+							//BSQAC(predictedSamples, Previous1, Previous2, z);
+							break;
+					}
+					break;
+					
+					
+				case CONS.INTERLEAVE_ENTROPY_CODER:
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						predictedSamples[y][x] = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+					}}
+					for (int bit = 15; bit >= 0; bit--){
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						 	realBit = (predictedSamples[y][x] & BIT_MASKS2[bit]) != 0;
+							//int context = cm.getContext(predictedSamples, y, x, bit);//get context
+							context = cm.getContext(predictedSamples, Previous1, z, y, x, bit);//get context
+							int prob = cp.getProbability(context);//get probaility for the computed context
+							cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+							iec.encodeBitProb(realBit, prob*2);//The probability for the IEC must be multiplied by a factor of two fit in the bins definition.
+					}}}
+					break;
+				case CONS.DUMB_MQ_ENCODER:
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						predictedSamples[y][x] = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+					}}
+					for (int bit = 15; bit >= 0; bit--){
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+							realBit = (predictedSamples[y][x] & BIT_MASKS2[bit]) != 0;
+							context = cm.getContext(predictedSamples, y, x, bit);//get context
+							//int context = cm.getContext(predictedSamples, predictedSamplesPrevious1, z, y, x, bit);//get context
+							int prob = cp.getProbability(context);//get probaility for the computed context
+							prob = 0xAC01-(int) ((float)prob / (1 << numBitsPrecision) * 0xAC01);//it uses the probability of one instead of 0. And the max value for the probability is 0xAC01
+							cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+							dmq.encodeBitProb(realBit, prob);
+					}}}
+						
+					break;
+				
+					
+					
+				case CONS.ENTROPY:
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						predictedSamples[y][x] = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+					}}
+					for (int bit = 15; bit >= 0; bit--){
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+							realBit = (predictedSamples[y][x] & BIT_MASKS2[bit]) != 0;
+							//int context = cm.getContext(predictedSamples, y, x, bit);//get context
+							context = cm.getContext(predictedSamples, Previous1, z, y, x, bit);//get context
+							//int context = cm.getContextMedical(predictedSamples, predictedSamplesPrevious1, predictedSamplesPrevious2, z, y, x, bit);//get context
+							int prob = 0;
+							if(probabilityModel == 3){
+								prob = cp.getProbability(realBit,context);//get probability for the computed context
+							}else{
+								prob = cp.getProbability(context);//get probability for the computed context
+							}
+							
+							cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+							double probq = prob / (double) (1 << numBitsPrecision);
+														
+							if(realBit){
+								probq = 1 - probq;
+							}
+							
+							assert(probq != 0);
+							assert(probq != 1);
+							
+							double symbolCost = - (Math.log10(probq) / Math.log10(2));
+							
+							assert(symbolCost > 0);
+							
+							entropy += symbolCost; //https://en.wikipedia.org/wiki/Arithmetic_coding
+					}}}
+					break;
+					
+				case CONS.AIC:
+					
+					int maxCurrent = 0;
+					int maxPrevious1 = 0;
+					int maxPrevious2 = 0;
+					int qstepCurrent = 0;
+					int qstepPrevious1 = 0;
+					int qstepPrevious2 = 0;
+					
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						if(maxCurrent < bands[parameters.numberPredictionBands][y][x]) maxCurrent = bands[parameters.numberPredictionBands][y][x];
+					}}
+					if(z > 0){
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							if(maxPrevious1 < Previous1[y][x]) maxPrevious1 = Previous1[y][x];
+						}}
+					}
+					if(z > 1){
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							if(maxPrevious2 < Previous2[y][x]) maxPrevious2 = Previous2[y][x];
+						}}
+					}
+					//System.out.println(maxCurrent+" "+maxPrevious1+" "+maxPrevious2);
+					qstepCurrent = (int) Math.ceil((double)maxCurrent / (double)IntegerContexts);
+					qstepPrevious1 = (int) Math.ceil((double)maxPrevious1 / (double)IntegerContexts);
+					qstepPrevious2 = (int) Math.ceil((double)maxPrevious2 / (double)IntegerContexts);
+					if(qstepCurrent == 0)qstepCurrent = 1;
+					if(qstepPrevious1 == 0)qstepPrevious1 = 1;
+					if(qstepPrevious2 == 0)qstepPrevious2 = 1;
+					
+					for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						
+						
+						context = icm.getContext(bands, Previous1, Previous2, parameters.numberPredictionBands, y, x, qstepCurrent, qstepPrevious1, qstepPrevious2);//get context
+						
+						//System.out.println(context);
+						int prob = icp.getProbability(bands[parameters.numberPredictionBands][y][x], context, maxCurrent, maxPrevious1, maxPrevious2);//get probability for the computed context
+						//ec.encodeIntegerProb(bands[parameters.numberPredictionBands][y][x], prob);//encode the bit using the specific probability
+						icp.updateSymbols(bands[parameters.numberPredictionBands][y][x], context);//updates the symbols decoded to properly compute the probability
+						double probq = prob / (double) (1 << numBitsPrecision);
+						double symbolCost = - (Math.log10(probq) / Math.log10(2));
+						assert(symbolCost > 0);
+						entropy += symbolCost; //https://en.wikipedia.org/wiki/Arithmetic_coding
+						//System.out.println(probq+" "+symbolCost+" "+entropy);
+						
+						 
+					}}
+					
+					break;
+					
+					default:
+						throw new Error();
+					
+				}
+				
+				//When 3D contexts are used we need to copy the predicted into temporal structures
+				if(contextModel == 13 || parameters.entropyCoderType == CONS.SYMBOL_ARITHMETIC_ENCODER_FLW){
+					if(z == 0){
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							Previous1[y][x]  = predictedSamples[y][x];
+						}}
+					}
+					if(z > 0){
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							Previous2[y][x]  = Previous1[y][x];
+							Previous1[y][x]  = predictedSamples[y][x];
+						}}
+						
+					}
+					
+				}
+				
+				
+			}
+			
+			//cp.printContextState();
+			
+			switch(parameters.entropyCoderType){
+				case CONS.SAMPLE_ADAPTIVE_ENCODER://Entropy Integer Code
+					ec.getRate(verbose);
+					ec.terminate(verbose);
+					break;
+				case CONS.BLOCK_ADAPTIVE_ENCODER://Block Adaptative Coder
+					ec.getRate(verbose);
+					ec.terminate(verbose);
+					break;
+		
+				case CONS.ARITHMETIC_ENCODER_FLW:
+					ec.terminate();
+					fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+					break;
+					
+				case CONS.INTERLEAVE_ENTROPY_CODER:
+					iec.terminate();
+					BitSet outputstream = iec.getOutput();
+					for(int i = 0; i < outputstream.length(); i++){
+						fbos.write(1, outputstream.get(i));
+					}
+					fbos.flush();
+					break;
+				
+				case CONS.DUMB_MQ_ENCODER:
+					dmq.terminate();
+					break;
+					
+				
+			}
+			/*if(output != null){
+				output.flush();
+				output.close();
+			}*/
+			if(quantizer == 10){
+				pw.flush();
+				pw.close();
+				uq.setWindowsize();
+			}
+			image.close(it);
+	
+		}catch(UnsupportedOperationException e) {
+			throw new Error("Unexpected exception ocurred "+e.getMessage());
+		}catch(IndexOutOfBoundsException e) {
+			e.printStackTrace();
+			throw new Error("Unexpected exception ocurred "+e.getMessage());
+		}catch(ClassCastException e) {
+			throw new Error("Unexpected exception ocurred "+e.getMessage());
+		}
+	}
+
+	
+	/**
+	 * Encodes an image in BSQ order using Fixed Quantization Step Mode
+	 *
+	 * @param verbose indicates whether to display information
+	 * @throws Exception 
+	 */
+//	BEFORE DOING THIS IS NECESSARY INITIALISATE BUFFERED WRITER BR_HIST AS CODER ARGUMENT BufferedWriter br_hist = null;
+
+	private void codeBSQRateControl(boolean verbose) throws Exception {
+		
+		int bands[][][] = new int[parameters.numberPredictionBands + 1][][];
+		int value = 0;
+		FileWriter file = new FileWriter("qsteps.txt");
+		PrintWriter pw = new PrintWriter(file);
+		T = targetRate;
+		List<Float> currentMedian = new ArrayList<Float>();
+		List<Float> medianLine = new ArrayList<Float>();
+		List<Float> medianBands = new ArrayList<Float>();
+		List<Float> inputRate = new ArrayList<Float>();
+		List<Float> outputRate = new ArrayList<Float>();
+		
+		int L = 17;
+		int Qstep = 1;
+		float [] updateQstepValues = new float[2];
+		updateQstepValues[0] = Qstep;
+		updateQstepValues[1] = T;
+
+		if(verbose || debugMode) {
+			System.out.println("Coding BSQ");
+		}
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			
+			if(debugMode) {
+				System.err.println("debugInfo: RawImage created");
+			}
+			
+			int predictedSamplesPrevious1[][] = new int[height][width];
+			int predictedSamplesPrevious2[][] = new int[height][width];
+			if(icm != null) predictedSamplesPrevious2 = new int[height][width];
+				
+			//DataOutputStream output = null;
+			
+			for (int z = 0; z < components; z ++) {
+				
+				if (verbose) {
+					System.out.print("\rCoding band: " + z);
+				}
+				
+				prepareBands(z, bands, it, height, width);
+				
+				int predictedSamples[][] = new int[height][width];
+				
+				if(z == 0){
+					ec.restartEncoding();
+					ec.init(z);
+				}
+				
+				/*if(z == 0){
+					output = new DataOutputStream(new FileOutputStream("predicted"+this.inputFile,false));
+				}*/
+				
+				uq.setQuantizationStep(1);
+				for (int y = 0; y < height; y ++) {
+					for (int x = 0; x < width; x ++) {
+						value = predictorRC.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+						//System.out.println("value: "+value);
+						currentMedian.add((float)value);
+						
+						if(x % L == L - 1){
+							Collections.sort(currentMedian);
+							//puts the median of a current L segment into a list that contains all the medians of the line
+							medianLine.add(getMedianFromaList(currentMedian));
+							//clears the current median segment	
+							currentMedian.clear();
+						}	
+					}
+					Collections.sort(medianLine);
+					//puts the median of a current line into a list that contains the medians for all bands
+					medianBands.add(getMedianFromaList(medianLine));
+					//clears the current median line
+					medianLine.clear();
+				}
+				
+					this.targetRate = BSQupdateTargetRateValsesia(z, inputRate, outputRate, updateQstepValues, medianBands);
+					updateQstepValues = updateQstep(medianBands, inputRate, outputRate, this.targetRate, 1);
+					Qstep = (int)updateQstepValues[0];
+					pw.println(String.valueOf(Qstep));
+					uq.setQuantizationStep(Qstep);
+					//uq.setQuantizationStep(1);
+				
+				
+				switch(parameters.entropyCoderType){
+				
+					case CONS.SAMPLE_ADAPTIVE_ENCODER://Entropy Integer Code
+						//System.out.println("CONS.SAMPLE_ADAPTIVE_ENCODER");
+						ec.init(z);
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							
+							value = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+							ec.codeSample(value, y*width + x, z);
+							ec.update(value, y*width + x, z);
+							ec.updateHistogram(value);
+						}}
+						break;
+						
+					case CONS.BLOCK_ADAPTIVE_ENCODER://Block Adaptative Coder
+						//System.out.println("CONS.BLOCK_ADAPTIVE_ENCODER");
+						ec.init(z);
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							value = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+							ec.codeSample(value, y*width + x, z);
+							ec.update(value, y*width + x, z);
+							ec.updateHistogram(value);
+						}}
+						break;
+		
+					case CONS.ARITHMETIC_ENCODER_FLW:
+						//System.out.println("CONS.ARITHMETIC_ENCODER_FLW");
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							predictedSamples[y][x] = predictor.compress(bands, z, y, x, parameters.numberPredictionBands, y, uq);
+						}}
+						
+						for (int bit = MAXBITS-1; bit >= 0; bit--){
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+						    boolean realBit = (predictedSamples[y][x] & BIT_MASKS2[bit]) != 0;
+							//int context = cm.getContext(predictedSamples, y, x, bit);//get context
+							//int context = cm.getContext(predictedSamples, predictedSamplesPrevious1, z, y, x, bit);//get context
+							int context = cm.getContext(predictedSamples, predictedSamplesPrevious1, predictedSamplesPrevious2, z, y, x, bit);//get context
+							int prob = cp.getProbability(context);//get probaility for the computed context
+							cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+							ec.encodeBitProb(realBit, prob);//encode the bit using the specific probability
+									
+						}}}
+					break;
+				}
+				
+				
+				
+				/*if(z == 0){
+					updateQstepValues = updateQstep(medianBands, inputRate, outputRate, this.targetRate);
+					this.targetRate = updateTargetRateValsesia(z, inputRate, outputRate, updateQstepValues, medianBands);
+				}*/
+				medianBands.clear();
+				
+				//When 3D contexts are used we need to copy the predicted into temporal structures
+				if(contextModel > 4){
+					if(z == 0){
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							predictedSamplesPrevious1[y][x]  = predictedSamples[y][x];
+						}}
+					}
+					if(z > 0){
+						for (int y = 0; y < height; y ++) {
+						for (int x = 0; x < width; x ++) {
+							predictedSamplesPrevious2[y][x]  = predictedSamplesPrevious1[y][x];
+							predictedSamplesPrevious1[y][x]  = predictedSamples[y][x];
+						}}
+						
+					}
+				}
+				
+				
+			}
+			
+			ec.terminate();
+			if(parameters.entropyCoderType == CONS.ARITHMETIC_ENCODER_FLW){
+				fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			}
+			
+					
+			pw.flush();
+			pw.close();
+			/*if(output != null){
+				output.flush();
+				output.close();
+			}*/
+			image.close(it);
+	
+		}catch(UnsupportedOperationException e) {
+			throw new Error("Unexpected exception ocurred "+e.getMessage());
+		}catch(IndexOutOfBoundsException e) {
+			e.printStackTrace();
+			throw new Error("Unexpected exception ocurred "+e.getMessage());
+		}catch(ClassCastException e) {
+			throw new Error("Unexpected exception ocurred "+e.getMessage());
+		}
+	}
+	
+	
+
+
+	/**
+	 * Reads the next band of the image from the input file.
+	 * @param it the BSQ iterator over the image
+	 * @return the next band of the image
+	 */
+	private void readBand(RawImageIterator<int[]> it, int[][] band) {
+		
+		for(int i=0;i<geo[CONS.HEIGHT];i++) {
+			band[i] = it.next();
+		}
+	}
+	
+	/**
+	 * Tries to read the band z of the image, and reorders all the bands
+	 * in memory.
+	 * @param z the band to be read
+	 * @param bands an array with all the bands needed in the compression process
+	 * @param it the BSQ iterator over the image
+	 */
+	private void prepareBands(int z, int[][][] bands, RawImageIterator<int[]> it, int height, int width) {
+		bands[0] = null;
+		for(int i = 0; i < parameters.numberPredictionBands; i ++) {
+			bands[i] = bands[i + 1];
+		}
+		bands[parameters.numberPredictionBands] = new int[height][];
+		readBand(it, bands[parameters.numberPredictionBands]);
+	}
+
+	/**
+	 * Encodes an image in BI order
+	 *
+	 * @param verbose indicates whether to display information
+	 * @throws IOException if can not write information to the file
+	 */
+	private void codeBI(boolean verbose) throws IOException {
+
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ?
+				geo[CONS.BANDS] / M :
+					geo[CONS.BANDS] / M + 1;
+
+		int value;
+		int bands[][][] = new int[geo[CONS.BANDS]][2][];
+
+		if(verbose || debugMode) {
+			System.out.println("Coding BI");
+		}
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				prepareLines(y, bands, it);
+				if (verbose && geo[CONS.HEIGHT] % 10 == 0) {
+					System.out.print("\rCoding rows: " + y + " to " + Math.min(y+10, geo[CONS.HEIGHT]));
+				}
+				for (int i = 0; i < auxValue; i++) {
+					for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+						for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+							if (x == 0 && y == 0) {
+								ec.init(z);
+							}
+							value = predictor.compress(bands, z, y, x, z, 1, uq);
+							ec.codeSample(value, y*geo[CONS.WIDTH] + x, z);
+							ec.update(value, y*geo[CONS.WIDTH] + x, z);
+							
+						}
+					}
+				}
+			}
+			ec.terminate();
+			image.close(it);
+			if (verbose || debugMode) {
+				System.out.print("\rCoding image finished");
+			}
+		}catch(UnsupportedOperationException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(IndexOutOfBoundsException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(ClassCastException e) {
+			e.printStackTrace(System.err);
+			
+		}
+	}
+	
+	/**
+	 * Encodes an image in BI order
+	 *
+	 * @param verbose indicates whether to display information
+	 * @throws IOException if can not write information to the file
+	 */
+	private void codeBIRateControlValsesia(boolean verbose) throws IOException {
+		
+		FileWriter file = new FileWriter("qsteps.txt");
+		PrintWriter pw = new PrintWriter(file);
+        
+		
+		T = targetRate;
+		
+		int value;
+		int bands[][][] = new int[geo[CONS.BANDS]][2][];
+		int bandsToEncode[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+
+		
+		List<Float> currentMedian = new ArrayList<Float>();
+		List<Float> medianLine = new ArrayList<Float>();
+		List<Float> medianBands = new ArrayList<Float>();
+		List<Float> inputRate = new ArrayList<Float>();
+		List<Float> outputRate = new ArrayList<Float>();
+		
+		int L = 17;
+		int Qstep = 1;
+		float [] updateQstepValues = new float[2];
+		updateQstepValues[0] = Qstep;
+		updateQstepValues[1] = T;
+		
+		if(verbose || debugMode) {
+			System.out.println("Coding BI");
+		}
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				
+				if(y != 0) {
+					for(int i=0;i<geo[CONS.BANDS];i++) {
+						bands[i][0] = bands[i][1];
+						bandsToEncode[i][0] = bandsToEncode[i][1];
+					}
+				}
+				for(int i=0;i<geo[CONS.BANDS];i++) {
+					bandsToEncode[i][1] = bands[i][1] = it.next();
+					
+				}
+				
+				if (verbose && geo[CONS.HEIGHT] % 10 == 0) {
+					System.out.print("\rCoding rows: " + y + " to " + Math.min(y+10, geo[CONS.HEIGHT]));
+				}
+				
+				uq.setQuantizationStep(1);
+				
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {
+					for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+						
+						value = predictorRC.compress(bands, z, y, x, z, 1, uq);
+						currentMedian.add((float)value);
+					
+						if(x % L == L - 1){
+							
+							//removes duplicate elements and sorts a list
+							/*Set<Float> hs = new HashSet<>();
+							hs.addAll(currentMedian);
+							currentMedian.clear();
+							currentMedian.addAll(hs);
+							*/
+							Collections.sort(currentMedian);
+							//puts the median of a current L segment into a list that contains all the medians of the line
+							medianLine.add(getMedianFromaList(currentMedian));
+							//clears the current median segment	
+							currentMedian.clear();
+						}
+					}
+					
+					//removes duplicate elements and sorts a list
+					/*Set<Float> hs = new HashSet<>();
+					hs.addAll(medianLine);
+					medianLine.clear();
+					medianLine.addAll(hs);
+					*/
+					Collections.sort(medianLine);
+					//puts the median of a current line into a list that contains the medians for all bands
+					medianBands.add(getMedianFromaList(medianLine));
+					//clears the current median line
+					medianLine.clear();
+				}
+				
+				
+				if(y == 0) Qstep = 1;
+				
+				uq.setQuantizationStep(Qstep);
+				pw.println(String.valueOf(Qstep));
+				
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {
+				for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+					if (x == 0 && y == 0) {
+						ec.init(z);
+					}
+					
+					value = predictor.compress(bandsToEncode, z, y, x, z, 1, uq);
+					bands[z][1][x] = bandsToEncode[z][1][x];
+					//code
+					ec.codeSample(value, y*geo[CONS.WIDTH] + x, z);
+					ec.update(value, y*geo[CONS.WIDTH] + x, z);	
+				}}
+				//System.out.println("y: "+y+" Qstep: "+Qstep+" targetRate: "+targetRate+" ec.getNumBitsWritten(): "+ec.getNumBitsWritten());
+				this.targetRate = BIupdateTargetRateValsesia(y, inputRate, outputRate, updateQstepValues, medianBands);
+				updateQstepValues = updateQstep(medianBands, inputRate, outputRate, this.targetRate, 0);
+				Qstep = (int)updateQstepValues[0];
+				medianBands.clear();
+				//targetRate = T;
+				
+				
+				//Qstep = 2;
+				
+			}
+			
+			//System.out.println("predictor.getPAE(): "+predictor.getPAE());
+			//System.out.println("predictor.getMSE(): "+predictor.getMSE(geo[CONS.BANDS]*geo[CONS.WIDTH]*geo[CONS.HEIGHT]));
+			ec.terminate();
+			
+			
+			
+			pw.flush();
+			pw.close();
+			image.close(it);
+			if (verbose || debugMode) {
+				System.out.print("\rCoding image finished");
+			}
+		}catch(UnsupportedOperationException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(IndexOutOfBoundsException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(ClassCastException e) {
+			e.printStackTrace(System.err);
+			
+		}
+	}
+	
+	/**
+	 * Encodes an image in BI order
+	 *
+	 * @param verbose indicates whether to display information
+	 * @throws IOException if can not write information to the file
+	 */
+	private void codeBIRateControlNew(boolean verbose) throws IOException {
+		
+		
+	}
+	
+	private float BSQupdateTargetRateValsesia(int z, List<Float> inputRate, List<Float> outputRate, float []updateQstepValues, List<Float> medianBands){
+
+		float newTargetRate = 0;
+		float w = 0;
+		float actualOutputRate = 0;
+		float theta = 5;
+		float numbitsWrittenCurrentBand = 0;
+		float currentDeviationRate = 0;
+		
+		float correction = 0;
+		float etanext = 0;
+		//float J = 0;
+		
+		if(parameters.entropyCoderType == CONS.ARITHMETIC_ENCODER_FLW){
+			numbitsWritten = ec.getNumBitsWritten();
+		}else{
+			numbitsWritten = file.length()*8;
+		}
+		
+		//System.out.println("ec.getNumBitsWritten(): "+ec.getNumBitsWritten()+" file.length():"+(file.length()*8));
+		theta = geo[CONS.BANDS] - z;	
+		//Measure the actual outputRate
+		numbitsWrittenCurrentBand = numbitsWritten - numbitsWrittenBefore; 
+		if(z == 0) numbitsWritten = 0;
+		numbitsWrittenBefore = numbitsWritten;
+		
+		actualOutputRate = numbitsWritten/(z*geo[CONS.HEIGHT]*geo[CONS.WIDTH]);
+		System.out.println("actualOutputRate: "+actualOutputRate);
+		numbitsWrittenCurrentBand = numbitsWrittenCurrentBand/(geo[CONS.HEIGHT]*geo[CONS.WIDTH]);
+		
+		currentDeviationRate = deviationRate;
+		correction = currentDeviationRate / theta;
+		deviationRate = currentDeviationRate + (T - numbitsWrittenCurrentBand);
+		if(z == 0){
+			w = 1;
+			
+			//if(w*w > 2) w = (float) Math.sqrt(2);
+			//eta = numbitsWrittenCurrentLine;
+			eta = (numbitsWrittenCurrentBand / w) - (currentDeviationRate / (theta * w));
+			////////////////////////etanext = numbitsWrittenCurrentLine;
+			etanext =  eta +  w * (T - numbitsWrittenCurrentBand + correction);////////////////
+			newTargetRate =  etanext + (deviationRate / theta) * (1 / w);
+			//J = Math.abs(T - numbitsWrittenCurrentLine) + Math.abs(T - numbitsWrittenCurrentLine + (2 * currentDeviationRate) / theta);  
+			
+		}else{
+			//J = Math.abs(T - numbitsWrittenCurrentLine) + Math.abs(T - numbitsWrittenCurrentLine + (2 * currentDeviationRate) / theta);
+			w = numbitsWrittenCurrentBand / outputRate.get(z-1);
+			//if(w*w > 2) w = (float) Math.sqrt(2);
+			//eta = numbitsWrittenCurrentLine;
+			eta = (numbitsWrittenCurrentBand / w) - (currentDeviationRate / (theta * w));
+			etanext =  eta +  w * (T - numbitsWrittenCurrentBand + correction);
+			newTargetRate =  etanext + (deviationRate / theta) * (1 / w);
+			
+		}	
+		
+		//System.out.println("newTargetRate: "+newTargetRate);
+		if(z == 0) newTargetRate =  T * w; 
+		if(z > 0 && newTargetRate < 0){
+			newTargetRate = outputRate.get(z-1);
+		}
+		//System.out.println("newTargetRate: "+newTargetRate);
+		
+		//if(newTargetRate < numbitsWrittenCurrentLine){
+		//	System.out.println("newTargetRate1: "+newTargetRate);
+		//	if(newTargetRate < 0){
+		//		if(y > 0)newTargetRate =  outputRate.get(y-1);
+		//		else newTargetRate = etanext + (deviationRate / theta) * (1 / w);
+		//		System.out.println("newTargetRate2: "+newTargetRate);
+		//	}
+		//	
+		//	if(y == 0) newTargetRate = (T + numbitsWrittenCurrentLine*2) / 3;
+		//	else 	   newTargetRate = (outputRate.get(y-1) + numbitsWrittenCurrentLine*2) / 3;
+		//}
+		//System.out.println("newTargetRate3: "+newTargetRate);
+		
+		
+		
+		
+		eta = etanext;
+		currentDeviationRate = deviationRate;
+		outputRate.add(newTargetRate);
+		inputRate.add(numbitsWrittenCurrentBand);
+		System.out.println("newTargetRate: "+newTargetRate);
+		return(newTargetRate);
+	}
+	
+	private float BIupdateTargetRateValsesia(int y, List<Float> inputRate, List<Float> outputRate, float []updateQstepValues, List<Float> medianBands){
+		float newTargetRate = 0;
+		float w = 0;
+		
+		float theta = 5;
+		float numbitsWrittenCurrentLine = 0;
+		float munext = 0;
+		float previousDeviationRate = 0;
+		float previousNewRate = 0;
+		float mu = 0;
+		float a = 0;
+		
+		numbitsWritten = ec.getNumBitsWritten();
+		numbitsWrittenCurrentLine = numbitsWritten - numbitsWrittenBefore; 
+		numbitsWrittenBefore = numbitsWritten;
+		float linebps =  numbitsWrittenCurrentLine / (geo[CONS.BANDS]*geo[CONS.WIDTH]);
+		
+		
+		//System.out.println("");
+		if(y == 0){
+			
+			w = linebps / T;
+			//if(w*w > 2) w = 1.4142f;
+			w = 1;
+			previousDeviationRate = deviationRate;
+			deviationRate = deviationRate + (T - linebps);
+			
+			mu = (linebps / w) - (previousDeviationRate /(w*theta));
+			a = (T - linebps + (previousDeviationRate / theta));
+			munext = mu + w * a;
+			munext = 0;
+			newTargetRate = (float)(munext + (deviationRate / theta) * (1 / w));
+			
+		}else{
+			
+			previousNewRate = outputRate.get(y-1);
+			w = linebps / previousNewRate;
+			if(w*w > 2) w = 1.4142f;
+			previousDeviationRate = deviationRate;
+			deviationRate = deviationRate + (T - linebps);
+			
+			mu = (linebps / w) - (previousDeviationRate /(w*theta));
+			a = (T - linebps + (previousDeviationRate / theta));
+			munext = mu + w * a;
+			newTargetRate = (float)(munext + (deviationRate / theta) * (1 / w));
+		}
+		
+		//System.out.print("newTargetRate: "+newTargetRate);
+		if(newTargetRate < 0){
+			if(y == 0) newTargetRate = T * w;
+			else newTargetRate = T * w;
+		}else{
+			/*if(newTargetRate < linebps) {
+				newTargetRate = ((newTargetRate + linebps ) / 5 ) * 4;
+			}else{
+				
+			}*/
+		}
+		
+		//System.out.println(" --> newTargetRate: "+newTargetRate);
+		
+		mu = munext;
+		outputRate.add(newTargetRate);
+		
+		//System.out.println("");
+		//System.out.println("linebps:"+linebps+" mu:"+mu);
+		//System.out.println("newTargetRate:"+newTargetRate+" munext:"+munext+" deviationRate:"+deviationRate+" theta:"+theta+" w:"+w);
+		//System.out.println("actualOutputRate:"+actualOutputRate);
+		
+		previousDeviationRate = deviationRate;
+		return(newTargetRate);
+	}
+	
+		
+	private float[] updateQstep(List<Float> medianBands, List<Float> inputRate, List<Float> outputRate, float targetRate, int BSQ){
+		
+		
+		float [] returnedValues = new float[2];
+		
+		//System.out.println("this.targetRate: "+this.targetRate+" "+medianBands.size());
+		
+		int currentQstep =  uq.getQuantizationStep();
+		int nextQstep = currentQstep;
+		double R = 0;
+		double ROld = 0;
+		for(int index = 0; index < medianBands.size(); index++){
+			R = R + GetValesesiaRate((double)medianBands.get(index), nextQstep);
+		}
+		if(BSQ == 1) R = R / height;
+		else R = R / components;
+		//System.out.println("nextQstep: "+nextQstep+" R: "+R+" ROld: "+ROld+" targetRate: "+targetRate);
+		
+		if(R >= targetRate){
+			while( (R >= targetRate) && (nextQstep < MAXQSTEP)){
+				ROld = R;
+				nextQstep = nextQstep + 2;
+				R = 0;
+				for(int index = 0; index < medianBands.size(); index++){
+					 R = R + GetValesesiaRate((double)medianBands.get(index), nextQstep);
+				}
+				if(BSQ == 1) R = R / height;
+				else R = R / components;
+				//System.out.println("nextQstep: "+nextQstep+" R: "+R+" ROld: "+ROld+" targetRate: "+targetRate);
+			}
+			if(Math.abs(R - targetRate) > Math.abs(ROld - targetRate)){
+				nextQstep = nextQstep - 2;
+			}
+		}else{
+			while( (R <= targetRate) && (nextQstep > 1)){
+				ROld = R;
+				nextQstep = nextQstep - 2;
+				R = 0;
+				for(int index = 0; index < medianBands.size(); index++){
+					 R = R + GetValesesiaRate((double)medianBands.get(index), nextQstep);
+				}
+				if(BSQ == 1) R = R / height;
+				else R = R / components;
+				//System.out.println("nextQstep: "+nextQstep+" R: "+R+" ROld: "+ROld+" targetRate: "+targetRate);
+			}
+			if(Math.abs(R - targetRate) > Math.abs(ROld - targetRate)){
+				nextQstep = nextQstep + 2;
+			}
+			
+		}
+		
+		//System.out.println("nextQstep: "+nextQstep+" \n");
+		returnedValues[0] = (float)nextQstep;
+		returnedValues[1] = (float)R;
+		return returnedValues;
+	}
+
+	/**
+	 * returns the median value from an Integer List of values
+	 * @param list
+	 * @return the median
+	 */
+	private float getMedianFromaList(List<Float> list){
+		float median = 0;
+		if(list.size() % 2 == 1){
+			//odd size
+			//median = (list.get((list.size())/2));
+			median = (list.get((list.size()+1)/2));
+		}else{
+			//even size
+			median = (list.get((int) (list.size()/2)-1) + list.get((list.size()/2))) / 2;
+			//median = (list.get((list.size()/2)) + list.get((list.size()/2)+1)) / 2;
+		}
+		//if(median == 0) median = 1;
+		return(median);
+	}
+	
+	/**
+	 *  Computes the rate according to the Valsessia and Magli GRSL paper
+	 * @param m is the median
+	 * @param Q is the qstep 
+	 * @return the rate
+	 */
+	private double GetValesesiaRate(double m, double Q){
+		double rate = 0;
+		double a = Math.pow(Math.E,-((Q/(2*m))));
+		double aa = 1 - a;
+		double b = Math.pow(Math.E,-(Q/m));
+		double bb = 1 - b;
+		double cc = Math.log(aa)/Math.log(2);
+		double aacc = -aa * cc;
+		double d = -(a/Math.log(2));
+		double e = (Math.log(bb/2)) + (Q/(2*m)) - (Q / (m*bb));
+		rate = aacc + d * e;
+		//return (rate / (geo[CONS.WIDTH] * geo[CONS.HEIGHT])) * 1000 / geo[CONS.BANDS]; 
+		return rate;
+		//500;
+		
+		
+	}
+	
+	
+	/**
+	 * Encodes an image in BI order
+	 *
+	 * @param verbose indicates whether to display information
+	 * @throws IOException if can not write information to the file
+	 */
+	private void codeBIAC(boolean verbose) throws IOException {
+		
+		int M = parameters.subframeInterleavingDepth;
+				int lines[][][] = new int[geo[CONS.BANDS]][2][];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+
+		if(verbose || debugMode) {
+			System.out.println("Coding BI");
+		}
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				prepareLines(y, lines, it);
+				if (verbose && geo[CONS.HEIGHT] % 10 == 0) {
+					System.out.print("\rCoding rows: " + y + " to " + Math.min(y+10, geo[CONS.HEIGHT]));
+				}
+				
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {		
+				for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+					predictedLines[z][0][x] = predictedLines[z][1][x];
+					predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+				}
+					BIAC(M, z, y, predictedLines);
+				}
+				
+				
+				//System.out.println(y+":"+predictor.getMSE(geo[CONS.WIDTH]*geo[CONS.BANDS])+":"+((float)ec.getNumBitsWritten()/(geo[CONS.WIDTH]*geo[CONS.BANDS])));
+				predictor.resetMSE();
+				ec.resetNumBitsWritten();
+				
+			}
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			if (verbose || debugMode) {
+				System.out.print("\rCoding image finished");
+			}
+		}catch(UnsupportedOperationException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(IndexOutOfBoundsException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(ClassCastException e) {
+			e.printStackTrace(System.err);
+			
+		}
+	}
+	
+	
+
+	
+	private void BIAC(int M, int z, int y, int predictedLines[][][]){
+		for (int bit = 15; bit >= 0; bit--){
+		for (int x = 0; x < width; x ++) {
+				if (x == 0 && y == 0 && z == 0 && bit == 15) {
+					ec.init(z);
+				}
+				boolean realBit = false;
+				int context = 0;
+				realBit = (predictedLines[z][1][x] & BIT_MASKS2[bit]) != 0;
+				//context = cm.getContext(predictedLines[z], 1, x, bit);//get context
+				context = cm.getContext(predictedLines, z, 1, x, bit);//get context
+				int prob = cp.getProbability(context);//get probability for the computed context
+				cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+				ec.encodeBitProb(realBit, prob);//encode the bit using the specific probability
+		}}
+	}
+	
+	private void BIAC3(int z, int M, int i, int y, int predictedLines[][][]){
+		for (int bit = 15; bit >= 0; bit--){
+		for (int x = 0; x < width; x ++) {
+				if (x == 0 && y == 0 && z == 0 && bit == 15) {
+					ec.init(z);
+				}
+				boolean realBit = false;
+				int context = 0;
+				realBit = (predictedLines[z][1][x] & BIT_MASKS2[bit]) != 0;
+				context = cm.getContext(predictedLines, z, 1, x, bit);//get context
+				int prob = cp.getProbability(context);//get probability for the computed context
+				cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+				ec.encodeBitProb(realBit, prob);//encode the bit using the specific probability
+		}}	
+	}
+	
+	private double BIBinaryContextualEntropy(int y, int predictedLines[][][]){
+		double binaryEntropy = 0;
+		for (int bit = 15; bit >= 0; bit--){
+			for (int z = 0; z < geo[CONS.BANDS]; z++) {
+			for (int x = 0; x < width; x ++) {
+			boolean realBit = false;
+			int context = 0;
+			realBit = (predictedLines[z][1][x] & BIT_MASKS2[bit]) != 0;
+			context = cm.getContext(predictedLines[z], 1, x, bit);//get context
+			int prob = cp.getProbability(context);//get probability for the computed context
+			cp.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+			double probq = prob / (double) (1 << numBitsPrecision);
+			
+			if(realBit){
+				probq = 1 - probq;
+			}
+			
+			assert(probq != 0);
+			assert(probq != 1);
+			
+			double symbolCost = - (Math.log10(probq) / Math.log10(2));
+			assert(symbolCost > 0);
+			binaryEntropy += symbolCost; //https://en.wikipedia.org/wiki/Arithmetic_coding
+			
+		}}}	
+		
+		return(binaryEntropy);
+	}
+	
+	private double BIBinaryContextualEntropy2(int y, int predictedLines[][][]){
+		double binaryEntropy = 0;
+		for (int bit = 15; bit >= 0; bit--){
+			for (int z = 0; z < geo[CONS.BANDS]; z++) {
+			for (int x = 0; x < geo[CONS.WIDTH]; x ++) {
+			boolean realBit = false;
+			int context = 0;
+			realBit = (predictedLines[z][1][x] & BIT_MASKS2[bit]) != 0;
+			//context = cmRC.getContext(predictedLines[z], 1, x, bit);//get context
+			context = cmRC.getContext(predictedLines, z, 1, x, bit);//get context
+			int prob = cpRC.getProbability(context);//get probability for the computed context
+			cpRC.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+			double probq = prob / (double) (1 << numBitsPrecision);
+			if(realBit){
+				probq = 1 - probq;
+			}
+			
+			assert(probq != 0);
+			assert(probq != 1);
+			
+			double symbolCost = - (Math.log10(probq) / Math.log10(2));
+			assert(symbolCost > 0);
+			binaryEntropy += symbolCost; //https://en.wikipedia.org/wiki/Arithmetic_coding
+			
+		}}}	
+		
+		return(binaryEntropy);
+	}
+	
+	
+	private double BIBinaryContextualEntropy3(int z, int y, int predictedLines[][][]){
+		double binaryEntropy = 0;
+		for (int bit = 15; bit >= 0; bit--){
+			for (int x = 0; x < geo[CONS.WIDTH]; x ++) {
+			boolean realBit = false;
+			int context = 0;
+			realBit = (predictedLines[z][1][x] & BIT_MASKS2[bit]) != 0;
+			//context = cmRC.getContext(predictedLines[z], 1, x, bit);//get context
+			context = cm.getContext(predictedLines, z, 1, x, bit);//get context
+			int prob = cpRC.getProbability(context);//get probability for the computed context
+			cpRC.updateSymbols(realBit, context);//updates the symbols decoded to properly compute the probability
+			double probq = prob / (double) (1 << numBitsPrecision);
+			if(realBit){
+				probq = 1 - probq;
+			}
+			
+			assert(probq != 0);
+			assert(probq != 1);
+			
+			double symbolCost = - (Math.log10(probq) / Math.log10(2));
+			assert(symbolCost > 0);
+			binaryEntropy += symbolCost; //https://en.wikipedia.org/wiki/Arithmetic_coding
+			
+		}}	
+		
+		return(binaryEntropy);
+	}
+	
+	
+	private void getSerializedPredictorCPLineObject() throws IOException, ClassNotFoundException{
+
+		//predictor
+		FileInputStream filePredictorSerIn = null;//new FileInputStream("/tmp/predictor.ser");
+		ObjectInputStream predictorSerIn = null;//new ObjectInputStream(filePredictorSerIn);
+		filePredictorSerIn = new FileInputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"predictorline.ser");
+		//filePredictorSerIn = new FileInputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"predictorline.ser");
+		predictorSerIn = new ObjectInputStream(filePredictorSerIn);
+		predictorRC = (Predictor) predictorSerIn.readObject();
+	    predictorSerIn.close();
+	    filePredictorSerIn.close();
+	    
+	    //cp
+	    FileInputStream fileCPSerIn = null;//new FileInputStream("/tmp/predictor.ser");
+	    ObjectInputStream cpSerIn = null;//new ObjectInputStream(filePredictorSerIn);
+	    fileCPSerIn = new FileInputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"cpline.ser");
+	    //fileCPSerIn = new FileInputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"cpline.ser");
+	    cpSerIn = new ObjectInputStream(fileCPSerIn);
+	    cpRC = (ContextProbability) cpSerIn.readObject();
+	    cpSerIn.close();
+	    fileCPSerIn.close();
+	    
+	 
+	}
+	
+	
+
+	private void putSerializedPredictorCPLineObject() throws IOException{
+		//predictor
+		FileOutputStream filePredictorSerOut = null;//new FileOutputStream("/tmp/predictor.ser");
+		ObjectOutputStream predictorSerOut = null;//new ObjectOutputStream(filePredictorSerOut);
+		filePredictorSerOut = new FileOutputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"predictorline.ser");
+		//filePredictorSerOut = new FileOutputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"predictorline.ser");
+		predictorSerOut = new ObjectOutputStream(filePredictorSerOut);
+		predictorSerOut.writeObject(predictorRC);
+		predictorSerOut.close();
+		filePredictorSerOut.close();
+		
+		//cp
+		FileOutputStream fileCPSerOut = null;//new FileOutputStream("/tmp/predictor.ser");
+		ObjectOutputStream cpSerOut = null;//new ObjectOutputStream(filePredictorSerOut);
+		fileCPSerOut = new FileOutputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"cpline.ser");
+		//fileCPSerOut = new FileOutputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"cpline.ser");
+		cpSerOut = new ObjectOutputStream(fileCPSerOut);
+		cpSerOut.writeObject(cpRC);
+		cpSerOut.close();
+		fileCPSerOut.close();
+		
+		
+
+	}
+	
+	private void getSerializedPredictorCPBufferObject() throws IOException, ClassNotFoundException{
+		
+		//predictor
+		FileInputStream filePredictorSerIn = null;//new FileInputStream("/tmp/predictor.ser");
+		ObjectInputStream predictorSerIn = null;//new ObjectInputStream(filePredictorSerIn);
+		filePredictorSerIn = new FileInputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"predictorbuffer.ser");
+		//filePredictorSerIn = new FileInputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"predictorbuffer.ser");
+		predictorSerIn = new ObjectInputStream(filePredictorSerIn);
+		predictorRC = (Predictor) predictorSerIn.readObject();
+	    predictorSerIn.close();
+	    filePredictorSerIn.close();
+	    
+	    //cp
+	    FileInputStream fileCPSerIn = null;//new FileInputStream("/tmp/predictor.ser");
+	    ObjectInputStream cpSerIn = null;//new ObjectInputStream(filePredictorSerIn);
+	    fileCPSerIn = new FileInputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"cpbuffer.ser");
+	    //fileCPSerIn = new FileInputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"cpbuffer.ser");
+	    cpSerIn = new ObjectInputStream(fileCPSerIn);
+	    cpRC = (ContextProbability) cpSerIn.readObject();
+	    cpSerIn.close();
+	    fileCPSerIn.close();
+	    
+	 
+	}
+
+	private void putSerializedPredictorCPBufferObject() throws IOException{
+		//predictor
+		FileOutputStream filePredictorSerOut = null;//new FileOutputStream("/tmp/predictor.ser");
+		ObjectOutputStream predictorSerOut = null;//new ObjectOutputStream(filePredictorSerOut);
+		filePredictorSerOut = new FileOutputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"predictorbuffer.ser");
+		//filePredictorSerOut = new FileOutputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"predictorbuffer.ser");
+		predictorSerOut = new ObjectOutputStream(filePredictorSerOut);
+		predictorSerOut.writeObject(predictorRC);
+		predictorSerOut.close();
+		filePredictorSerOut.close();
+		
+		//cp
+		FileOutputStream fileCPSerOut = null;//new FileOutputStream("/tmp/predictor.ser");
+		ObjectOutputStream cpSerOut = null;//new ObjectOutputStream(filePredictorSerOut);
+		fileCPSerOut = new FileOutputStream("/tmp/"+System.getProperty("user.dir").hashCode()+"cpbuffer.ser");
+		//fileCPSerOut = new FileOutputStream("/tmp/rdisk/"+System.getProperty("user.dir").hashCode()+"cpbuffer.ser");
+		cpSerOut = new ObjectOutputStream(fileCPSerOut);
+		cpSerOut.writeObject(cpRC);
+		cpSerOut.close();
+		fileCPSerOut.close();
+		
+
+	}
+	
+	/**
+	 * Encodes an image in BI order
+	 *
+	 * @param verbose indicates whether to display information
+	 * @throws IOException if can not write information to the file
+	 */
+	private void codeBIACRateControlValsesia(boolean verbose) throws IOException {
+		FileWriter file = new FileWriter("qsteps.txt");
+		PrintWriter pw = new PrintWriter(file);
+		T = targetRate;
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ?
+				geo[CONS.BANDS] / M :
+					geo[CONS.BANDS] / M + 1;
+		double previousbits = 0; 
+
+		int lines[][][] = new int[geo[CONS.BANDS]][2][];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int linesToEncode[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+
+		
+		List<Float> currentMedian = new ArrayList<Float>();
+		List<Float> medianLine = new ArrayList<Float>();
+		List<Float> medianBands = new ArrayList<Float>();
+		List<Float> inputRate = new ArrayList<Float>();
+		List<Float> outputRate = new ArrayList<Float>();
+		
+		int L = 17;
+		int Qstep = 1;
+		float [] updateQstepValues = new float[2];
+		updateQstepValues[0] = Qstep;
+		updateQstepValues[1] = T;
+
+		if(verbose || debugMode) {
+			System.out.println("Coding BI");
+		}
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				
+				if(y != 0) {
+					for(int i=0;i<geo[CONS.BANDS];i++) {
+						lines[i][0] = linesToEncode[i][1];
+						linesToEncode[i][0] = linesToEncode[i][1];
+					}
+				}
+				for(int i=0;i<geo[CONS.BANDS];i++) {
+					linesToEncode[i][1] = lines[i][1] = it.next();
+					
+				}
+				
+				
+				if (verbose && geo[CONS.HEIGHT] % 10 == 0) {
+					System.out.print("\rCoding rows: " + y + " to " + Math.min(y+10, geo[CONS.HEIGHT]));
+				}
+				
+				uq.setQuantizationStep(1);
+				
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {
+					for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+						
+						int value = predictorRC.compress(lines, z, y, x, z, 1, uq);
+						currentMedian.add((float)value);
+					
+						if(x % L == L - 1){
+							
+							//removes duplicate elements and sorts a list
+							/*Set<Float> hs = new HashSet<>();
+							hs.addAll(currentMedian);
+							currentMedian.clear();
+							currentMedian.addAll(hs);
+							*/
+							Collections.sort(currentMedian);
+							//puts the median of a current L segment into a list that contains all the medians of the line
+							medianLine.add(getMedianFromaList(currentMedian));
+							//clears the current median segment	
+							currentMedian.clear();
+						}
+					}
+					
+					//removes duplicate elements and sorts a list
+					/*Set<Float> hs = new HashSet<>();
+					hs.addAll(medianLine);
+					medianLine.clear();
+					medianLine.addAll(hs);
+					*/
+					Collections.sort(medianLine);
+					//puts the median of a current line into a list that contains the medians for all bands
+					medianBands.add(getMedianFromaList(medianLine));
+					//clears the current median line
+					medianLine.clear();
+				}
+					
+					
+					if(y == 0)	Qstep = 1;
+					//Qstep = 1;
+					uq.setQuantizationStep(Qstep);
+					pw.println(String.valueOf(Qstep));
+				
+					//ec.resetNumBitsWritten();
+					//predictor.resetMSE();
+					for (int z = 0; z < geo[CONS.BANDS]; z++) {
+						predictor.resetMSE();
+						for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+							predictedLines[z][0][x] = predictedLines[z][1][x];
+							int value = predictor.compress(linesToEncode, z, y, x, z, 1, uq);
+							predictedLines[z][1][x] = value;
+						}
+						BIAC(M, z, y, predictedLines);
+						
+						System.out.println(z+":"+y+":"+predictor.getMSE(geo[CONS.WIDTH])+":"+((double)(ec.getNumBitsWritten()-previousbits)/(double)(geo[CONS.WIDTH])));
+						previousbits = ec.getNumBitsWritten();
+					}
+					
+					
+					
+				//System.out.println(y+":"+predictor.getMSE(geo[CONS.WIDTH]*geo[CONS.BANDS])+":"+((double)(ec.getNumBitsWritten()-previousbits)/(double)(geo[CONS.WIDTH]*geo[CONS.BANDS])));	
+				//previousbits = ec.getNumBitsWritten();
+				//System.out.println("y: "+y+" Qstep: "+Qstep+" targetRate: "+targetRate);
+				this.targetRate = BIupdateTargetRateValsesia(y, inputRate, outputRate, updateQstepValues, medianBands);
+				updateQstepValues = updateQstep(medianBands, inputRate, outputRate, this.targetRate, 0);
+				Qstep = (int)updateQstepValues[0];
+				medianBands.clear();
+				
+				
+				
+			}
+			//System.out.println("predictor.getPAE(): "+predictor.getPAE());
+			//System.out.println("predictor.getMSE(): "+predictor.getMSE(geo[CONS.BANDS]*geo[CONS.WIDTH]*geo[CONS.HEIGHT]));
+			
+			
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			if (verbose || debugMode) {
+				System.out.print("\rCoding image finished");
+			}
+		}catch(UnsupportedOperationException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(IndexOutOfBoundsException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(ClassCastException e) {
+			e.printStackTrace(System.err);
+			
+		}
+	}
+	
+	/**
+	 * 
+	 * @param z the band to be loaded
+	 * @param y the line to be loaded
+	 * @param lines is where data is stored
+	 * @param buffer is the original data
+	 */
+	private int[][][] loadOriginalLineNotMoving(int z, int y, int[][][] lines, int[][][]buffer){
+		
+		for(int x=0;x<geo[CONS.WIDTH];x++) {
+			lines[z][1][x] = buffer[z][y][x];
+		}
+		return(lines);
+	}
+	
+	/**
+	 * 
+	 * @param y the line to be loaded
+	 * @param lines is where data is stored
+	 * @param buffer is the original data
+	 */
+	private int[][][] loadOriginalSpectralLineNotMoving(int y, int[][][] lines, int[][][]buffer){
+		
+		for(int i=0;i<geo[CONS.BANDS];i++) {
+		for(int x=0;x<geo[CONS.WIDTH];x++) {
+			lines[i][1][x] = buffer[i][y][x];
+		}}
+		return(lines);
+	}
+	
+	/**
+	 * 
+	 * @param z the band to be loaded
+	 * @param y the line to be loaded
+	 * @param lines is where data is stored
+	 * @param buffer is the original data
+	 */
+	private int[][][] loadOriginalLine(int z, int y, int[][][] lines, int[][][]buffer){
+		if(y != 0) {
+			for(int x=0;x<geo[CONS.WIDTH];x++) {
+				lines[z][0][x] = lines[z][1][x];
+			}
+		}
+		for(int x=0;x<geo[CONS.WIDTH];x++) {
+			lines[z][1][x] = buffer[z][y][x];
+		}
+		return(lines);
+	}
+	
+	/**
+	 * 
+	 * @param y the line to be loaded
+	 * @param lines is where data is stored
+	 * @param buffer is the original data
+	 */
+	private int[][][] loadOriginalSpectralLine(int y, int[][][] lines, int[][][]buffer){
+		if(y != 0) {
+			for(int i=0;i<geo[CONS.BANDS];i++) {
+			for(int x=0;x<geo[CONS.WIDTH];x++) {
+				lines[i][0][x] = lines[i][1][x];
+			}}
+		}
+		for(int i=0;i<geo[CONS.BANDS];i++) {
+		for(int x=0;x<geo[CONS.WIDTH];x++) {
+			lines[i][1][x] = buffer[i][y][x];
+		}}
+		return(lines);
+	}
+	
+	private void resetPredictorAndACFLW() throws ParameterException{
+		numBitsPrecision = 15;
+		coderWordLength = 48;
+		predictor = new Predictor(this.parameters);
+		predictor.resetMSE();
+		cm = new ContextModelling(contextModel);
+		numOfContexts = cm.getNumberOfContexts(MAXBITS);
+		cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+		cp.reset();
+		ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+		ec.reset();
+	}
+	
+					
+		
+		
+		
+		
+		/**
+		 * Aquest codi codifica en lossless i funciona a partir d'aquest codi es trballa el new ratecontrol
+		 * */
+		/*		
+		predictor = new Predictor(this.parameters);
+		cm = new ContextModelling(contextModel);
+		numOfContexts = cm.getNumberOfContexts(MAXBITS);
+		numBitsPrecision = 15;
+		coderWordLength = 48;
+		cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+		ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+		FileWriter file = new FileWriter("qsteps.txt");
+		PrintWriter pw = new PrintWriter(file);
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ?
+				geo[CONS.BANDS] / M :
+					geo[CONS.BANDS] / M + 1;
+
+		int lines[][][] = new int[geo[CONS.BANDS]][2][];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		double entropia = 0;
+		if(verbose || debugMode) {
+			System.out.println("Coding BI");
+		}
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				entropy = 0;
+				
+				
+				//preparelines
+				if(y != 0) {
+					for(int i=0;i<geo[CONS.BANDS];i++) {
+						lines[i][0] = lines[i][1];
+					}
+				}
+				for(int i=0;i<geo[CONS.BANDS];i++) {
+					lines[i][1] = it.next();
+					
+				}
+				
+				
+				
+				
+				
+				if (verbose && geo[CONS.HEIGHT] % 10 == 0) {
+					System.out.print("\rCoding rows: " + y + " to " + Math.min(y+10, geo[CONS.HEIGHT]));
+				}
+				for (int i = 0; i < auxValue; i++) {
+					for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+					for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+						predictedLines[z][0][x] = predictedLines[z][1][x];
+						predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+					}}
+					int Qstep = uq.getQuantizationStep();
+					pw.println(String.valueOf(Qstep));
+					
+					BIAC(M, i, y, predictedLines);
+					//entropy = entropy + BIBinaryContextualEntropy(M, i, y, predictedLines);
+				}
+				
+				System.out.println(y+":"+predictor.getMSE(geo[CONS.WIDTH]*geo[CONS.BANDS]*(y+1))+":"+((float)ec.getNumBitsWritten()/(geo[CONS.WIDTH]*geo[CONS.BANDS])+":"+entropy/(float)(geo[CONS.BANDS]*geo[CONS.WIDTH])));
+				//predictor.resetMSE();
+				ec.resetNumBitsWritten();
+				
+				
+			}
+			System.out.println(entropy/(float)(geo[CONS.BANDS]*geo[CONS.HEIGHT]*geo[CONS.WIDTH]));
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			if (verbose || debugMode) {
+				System.out.print("\rCoding image finished");
+			}
+		}catch(UnsupportedOperationException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(IndexOutOfBoundsException e) {
+			e.printStackTrace(System.err);
+			
+		}catch(ClassCastException e) {
+			e.printStackTrace(System.err);
+			
+		}
+		*/
+	
+	private void codeBIACRateControlProposal1(boolean verbose) throws IOException, ParameterException, ClassNotFoundException, CloneNotSupportedException {
+		predictorRC = new Predictor(parameters);
+		//predictor = predictorRC.clone();
+		predictor = new Predictor(parameters);
+		cm = new ContextModelling(contextModel);
+		numOfContexts = cm.getNumberOfContexts(MAXBITS);
+		numBitsPrecision = 15;
+		coderWordLength = 48;
+		cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+		ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+		
+		cmRC = new ContextModelling(contextModel);
+		numOfContexts = cmRC.getNumberOfContexts(MAXBITS);
+		cpRC = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+	 
+		//This structure contains the last line of the previous buffer for the Rate control
+		int lastLineRC[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int lastLinePredictedRC[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		int [] Qsteps = new int[geo[CONS.HEIGHT]];
+		MSEs = new double[geo[CONS.HEIGHT]];
+		finalBinaryEntropies = new double[geo[CONS.HEIGHT]];
+		
+		int currentBufferSize = 0;
+		//predictor = new Predictor(this.parameters);
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			//Fill structure with the maximum buffersize
+			int numOfBuffers = (int) Math.ceil((float)geo[CONS.HEIGHT]/(float)bufferSize);
+			//reset total entropy and MSE
+			
+			
+			for(int currentBuffer = 0; currentBuffer < 1; currentBuffer++){
+				if((currentBuffer+1) * bufferSize < geo[CONS.HEIGHT]) currentBufferSize = bufferSize;
+				else											  	  currentBufferSize = geo[CONS.HEIGHT]-(currentBuffer * bufferSize);
+				
+				//Buffer for the RC
+				int bufferRC[][][] = new int[geo[CONS.BANDS]][currentBufferSize][geo[CONS.WIDTH]];
+				//Buffer for the Coder
+				int bufferCoder[][][] = new int[geo[CONS.BANDS]][currentBufferSize][geo[CONS.WIDTH]];
+				
+				//Filling the buffer
+				
+				for (int y = 0; y < currentBufferSize; y++) {
+					int currentLine = currentBuffer*bufferSize+y;
+					Qsteps[currentLine] = -1;
+					for(int z = 0; z < geo[CONS.BANDS];z++) {
+						bufferRC[z][y] = it.next();
+					}
+					
+				}
+				
+				copyOf3Dim(bufferRC, bufferCoder);
+				
+				rateControl2(currentBuffer, currentBufferSize, bufferRC, lastLineRC, lastLinePredictedRC, Qsteps);
+		
+			}
+			
+			
+			////////// START CODING //////////
+			codeBIACQstepSpectralLine1(Qsteps);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+							
+					
+					
+					
+		}
+
+	private void codeBIACQstepSpectralLine1(int[] Qsteps) throws IOException, ParameterException{
+		//TODO
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ? geo[CONS.BANDS] / M :geo[CONS.BANDS] / M + 1;
+			
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			
+			
+			FileWriter file = new FileWriter("qsteps.txt");
+			PrintWriter pw = new PrintWriter(file);
+			lines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			predictedLines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			double bpsTotal = 0;
+			double bpsPreviousLine = 0;
+			image = null;
+			image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			it = null;
+			it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				//preparelines
+				prepareLines(y, lines, it);
+				uq.setQuantizationStep(Qsteps[y]);
+				if(y < bufferSize){
+					uq.setQuantizationStep(Qsteps[y]);
+				}else{
+					//Only controls targetRate
+					if(bpsTotal/(double)(y+1) > targetRate) Qsteps[y] = Qsteps[y-1] + 5;
+					if(bpsTotal/(double)(y+1) <= targetRate) Qsteps[y] = Qsteps[y-1] - 5;
+					if(Qsteps[y] < 1) Qsteps[y] = 1;
+					uq.setQuantizationStep(Qsteps[y]);
+				}
+				
+				
+				ec.resetNumBitsWritten();
+				predictor.resetMSE();
+				for (int i = 0; i < auxValue; i++) {
+					for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+					for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+						//if(y == 16 && z == 0 && x < 10)System.out.println("xxxx> "+predictedLines[z][1][x]);
+						predictedLines[z][0][x] = predictedLines[z][1][x];
+						predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+					}}
+					BIAC(M, i, y, predictedLines);
+				}
+				
+				System.out.println(y+":"+predictor.getMSE(geo[CONS.WIDTH]*geo[CONS.BANDS])+":"+((double)ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]*geo[CONS.BANDS])));
+				bpsPreviousLine = (double)ec.getNumBitsWritten()/(geo[CONS.WIDTH]*geo[CONS.BANDS]);
+				bpsTotal = bpsTotal + bpsPreviousLine;
+				pw.println(String.valueOf(Qsteps[y]));
+				
+				
+				
+				
+			}
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+	}
+	
+	private void codeBIACRateControlProposal2(boolean verbose) throws IOException, ParameterException, ClassNotFoundException, CloneNotSupportedException {
+		predictorRC = new Predictor(parameters);
+		//predictor = predictorRC.clone();
+		predictor = new Predictor(parameters);
+		cm = new ContextModelling(contextModel);
+		numOfContexts = cm.getNumberOfContexts(MAXBITS);
+		numBitsPrecision = 15;
+		coderWordLength = 48;
+		cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+		ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+		
+		cmRC = new ContextModelling(contextModel);
+		numOfContexts = cmRC.getNumberOfContexts(MAXBITS);
+		cpRC = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+	 
+		//This structure contains the last line of the previous buffer for the Rate control
+		int lastLineRC[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int lastLinePredictedRC[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		int [] Qsteps = new int[geo[CONS.HEIGHT]];
+		MSEs = new double[geo[CONS.HEIGHT]];
+		MSEs2 = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		VARs = new double[geo[CONS.HEIGHT]];
+		VARs2 = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		finalBinaryEntropies = new double[geo[CONS.HEIGHT]];
+		finalBinaryEntropies2 = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		finalBinaryEntropies2Real = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		eumas2 = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		
+		int currentBufferSize = 0;
+		//predictor = new Predictor(this.parameters);
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			//Fill structure with the maximum buffersize
+			int numOfBuffers = (int) Math.ceil((float)geo[CONS.HEIGHT]/(float)bufferSize);
+			//reset total entropy and MSE
+			
+			
+			for(int currentBuffer = 0; currentBuffer < numOfBuffers; currentBuffer++){
+				if((currentBuffer+1) * bufferSize < geo[CONS.HEIGHT]) currentBufferSize = bufferSize;
+				else											  	     currentBufferSize = geo[CONS.HEIGHT]-(currentBuffer * bufferSize);
+				
+				//Buffer for the RC
+				int bufferRC[][][] = new int[geo[CONS.BANDS]][currentBufferSize][geo[CONS.WIDTH]];
+				//Buffer for the Coder
+				int bufferCoder[][][] = new int[geo[CONS.BANDS]][currentBufferSize][geo[CONS.WIDTH]];
+				
+				//Filling the buffer
+				
+				for (int y = 0; y < currentBufferSize; y++) {
+					int currentLine = currentBuffer*bufferSize+y;
+					Qsteps[currentLine] = -1;
+					for(int z = 0; z < geo[CONS.BANDS];z++) {
+						bufferRC[z][y] = it.next();
+					}
+					
+				}
+				
+				copyOf3Dim(bufferRC, bufferCoder);
+				
+				if(RCStrategy == 8){
+					rateControl2Estimating(currentBuffer, currentBufferSize, bufferRC, lastLineRC, lastLinePredictedRC, Qsteps);
+				}else {
+					rateControl2(currentBuffer, currentBufferSize, bufferRC, lastLineRC, lastLinePredictedRC, Qsteps);
+				}
+			}
+			
+			
+			////////// START CODING //////////
+			if(RCStrategy == 2) codeBIACQstepSpectralLine2(Qsteps);
+			if(RCStrategy == 4) codeBIACQstepSpectralLine2AchievingRate(Qsteps);
+			if(RCStrategy == 8) codeBIACQstepSpectralLine2EstimatingAchievingRate(Qsteps);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+							
+					
+					
+					
+		}
+	
+	//TODO
+	private int rateControl2(int currentBuffer, int currentBufferSize, int[][][] bufferRC, int[][][] lastLineRC, int[][][] lastLinePredictedRC, int[] Qsteps) throws IOException, ClassNotFoundException {
+		double totalEntropy = 0;
+		double totalcurrentbps = 0;
+		int qstepline0 = 0;
+		int qstepline = 0;
+		int realY = -1;
+		int predictedLinesRef[][][] = new int[geo[CONS.BANDS]][1][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		
+		putSerializedPredictorCPBufferObject();
+		for(int qstepBS = BIT_MASKS.length-1; qstepBS >= 0; qstepBS-- ){
+			getSerializedPredictorCPBufferObject();
+			totalEntropy = 0;
+			
+			if(qstepBS == BIT_MASKS.length-1){
+				qstepline0 = qstepline0 + BIT_MASKS[qstepBS];
+			}else{
+				if(totalcurrentbps < targetRate) qstepline0 = qstepline0 - BIT_MASKS[qstepBS];
+				else				                 qstepline0 = qstepline0 + BIT_MASKS[qstepBS];
+			}
+			realY = currentBuffer * bufferSize + 0;
+			
+			QuantizePredictSpectralLine2(realY, 0, Qsteps, qstepline0, currentBuffer, currentBufferSize,  bufferRC, lastLineRC, lastLinePredictedRC, predictedLinesRef, lines);
+			putSerializedPredictorCPLineObject();
+			
+			for (int y = 1; y < currentBufferSize; y++) {
+				
+				double MSEMinDifLine = Double.MAX_VALUE;
+				double BinaryEntropyMSEMinDifLine = 0;
+				int qstepMSEMinLine = -1;
+				qstepline = 0;
+				realY = currentBuffer * bufferSize + y;
+				for(int qstepBSS = BIT_MASKS.length-1; qstepBSS >= 0; qstepBSS-- ){
+					
+					if(qstepBSS == BIT_MASKS.length-1){
+						qstepline = qstepline + BIT_MASKS[qstepBSS];
+					}else{
+						if(MSEs[realY] < MSEs[currentBuffer * bufferSize]) qstepline = qstepline + BIT_MASKS[qstepBSS];
+						else				  							      qstepline = qstepline - BIT_MASKS[qstepBSS];
+					}
+					getSerializedPredictorCPLineObject();
+					QuantizePredictSpectralLine2(realY, y, Qsteps, qstepline, currentBuffer, currentBufferSize,  bufferRC, lastLineRC, lastLinePredictedRC, predictedLinesRef, lines);
+					//Conditional MSE
+					if(Math.abs(MSEs[realY] - MSEs[currentBuffer * bufferSize]) < MSEMinDifLine){
+						MSEMinDifLine = Math.abs(MSEs[realY] - MSEs[currentBuffer * bufferSize]);
+						qstepMSEMinLine = qstepline;
+					}
+					
+				}
+				getSerializedPredictorCPLineObject();
+				uq.setQuantizationStep(qstepMSEMinLine);
+				lines = loadOriginalSpectralLineNotMoving(y, lines, bufferRC);
+				BinaryEntropyMSEMinDifLine = 0;
+				predictorRC.resetMSE();
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {
+				for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+					predictedLines[z][0][x] = predictedLinesRef[z][0][x];
+					predictedLines[z][1][x] = predictorRC.compress(lines, z, realY, x, z, 1, uq);
+					predictedLinesRef[z][0][x] = predictedLines[z][1][x];
+				}}
+				
+				BinaryEntropyMSEMinDifLine = BIBinaryContextualEntropy2(y, predictedLines);
+				
+				Qsteps[realY] = qstepMSEMinLine;
+				MSEs[realY] = predictorRC.getMSE(geo[CONS.BANDS]*geo[CONS.WIDTH]);
+				
+				finalBinaryEntropies[realY] = BinaryEntropyMSEMinDifLine;
+				putSerializedPredictorCPLineObject();
+			}
+			
+			//Entropy must estimated when the MSE has maximum similarity with MSE of line 0 (MSE[0]).
+			totalEntropy = 0;
+			for(int y = (currentBuffer * bufferSize); y < (currentBuffer * bufferSize) + currentBufferSize; y++){
+				totalEntropy = totalEntropy + finalBinaryEntropies[y];
+			}
+			totalcurrentbps = totalEntropy / (double)(geo[CONS.BANDS]*geo[CONS.WIDTH]* currentBufferSize);
+			
+			if(Math.abs(totalcurrentbps-targetRate) < 0.01){
+				//save last line of the current buffer
+				copyOf3Dim(lines, lastLineRC);
+				copyOf3Dim(predictedLines, lastLinePredictedRC);
+				putSerializedPredictorCPBufferObject();
+				//System.out.println("realY:"+realY+" qstepline0:"+qstepline0+" MSEs[realY]:" +MSEs[realY]+" targetRate: "+targetRate+" totalcurrentbps: "+totalcurrentbps);
+				return(1);
+			}
+		}
+		
+		copyOf3Dim(lines, lastLineRC);
+		copyOf3Dim(predictedLines, lastLinePredictedRC);
+		putSerializedPredictorCPBufferObject();
+		//System.out.println("realY:"+realY+" qstepline0:"+qstepline0+" MSEs[realY]:" +MSEs[realY]+" targetRate: "+targetRate+" totalcurrentbps: "+totalcurrentbps);
+		return(1);
+	}
+	
+	//TODO
+	private int rateControl2Estimating(int currentBuffer, int currentBufferSize, int[][][] bufferRC, int[][][] lastLineRC, int[][][] lastLinePredictedRC, int[] Qsteps) throws IOException, ClassNotFoundException {
+		double totalEntropy = 0;
+		double totalcurrentbps = 0;
+		int qstepline0 = 0;
+		int qstepline = 0;
+		int realY = -1;
+		int predictedLinesRef[][][] = new int[geo[CONS.BANDS]][1][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		System.out.println("aaaaa");
+		uq.setQuantizationStep(1);
+		for (int y = 0; y < currentBufferSize; y++) {
+			realY = currentBuffer * bufferSize + y;
+			if(y == 0){
+				for(int z = 0; z < geo[CONS.BANDS]; z++) {
+				for(int x = 0; x < geo[CONS.WIDTH]; x++) {
+					lines[z][0][x] = lastLineRC[z][1][x]; ///////////si es el primer buffer sino posa
+					predictedLines[z][0][x] = lastLinePredictedRC[z][1][x];
+					predictedLinesRef[z][0][x] = lastLinePredictedRC[z][1][x];
+				}}
+				//System.out.println(lines[1][0][110]);
+				lines = loadOriginalSpectralLineNotMoving(y, lines, bufferRC);
+			}else{
+				lines = loadOriginalSpectralLine(y, lines, bufferRC);
+			}
+			for (int z = 0; z < geo[CONS.BANDS]; z++) {
+				for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+					predictedLines[z][0][x] = predictedLinesRef[z][0][x];
+					predictedLines[z][1][x] = predictorRC.compress(lines, z, realY, x, z, 1, uq);
+					predictedLinesRef[z][0][x] = predictedLines[z][1][x];
+				}
+				VARs2[z][realY] = computeVarianceLinebyLine(z, predictedLines);
+				finalBinaryEntropies2Real[z][realY] = BIBinaryContextualEntropy3(z, y, predictedLines) / (double)geo[CONS.WIDTH];
+				eumas2[z][realY] = finalBinaryEntropies2Real[z][realY] / estimateRate(VARs2[z][realY],1);
+				//System.out.println(finalBinaryEntropies2Real[z][realY]+" "+estimateRate(VARs2[z][realY],1)+" "+eumas2[z][realY]);
+			}
+			
+			VARs[realY] = computeVariance(predictedLines);
+		}
+		
+		copyOf3Dim(lines, lastLineRC);
+		copyOf3Dim(predictedLines, lastLinePredictedRC);
+		
+		
+		
+		for(int qstepBS = BIT_MASKS.length-1; qstepBS >= 0; qstepBS-- ){
+			totalEntropy = 0;
+			
+			if(qstepBS == BIT_MASKS.length-1){
+				qstepline0 = qstepline0 + BIT_MASKS[qstepBS];
+				//System.out.println("totalcurrentbps:"+totalcurrentbps+" targetRate:"+targetRate+" qstepline0:"+qstepline0);
+			}else{
+				//System.out.println("totalcurrentbps:"+totalcurrentbps+" targetRate:"+targetRate+" qstepline0:"+qstepline0);
+				if(totalcurrentbps < targetRate) qstepline0 = qstepline0 - BIT_MASKS[qstepBS];
+				else				                 qstepline0 = qstepline0 + BIT_MASKS[qstepBS];
+			}
+			realY = currentBuffer * bufferSize + 0;
+			for (int z = 0; z < geo[CONS.BANDS]; z++) {
+				MSEs2[z][realY] = estimateMSE(VARs2[z][realY],qstepline0);
+			}
+			MSEs[realY] = estimateMSE(VARs[realY],qstepline0);
+			
+			double totalfinalBinaryEntropies2 = 0; 
+			for (int z = 0; z < geo[CONS.BANDS]; z++) {
+				finalBinaryEntropies2[z][realY] = estimateRate(VARs2[z][realY],qstepline0) / (double)geo[CONS.WIDTH];
+				totalfinalBinaryEntropies2 = totalfinalBinaryEntropies2 + (finalBinaryEntropies2[z][realY] * eumas2[z][realY]);
+			}
+			
+			//finalBinaryEntropies[realY] = estimateRate(VARs[realY],qstepline0);
+			finalBinaryEntropies[realY] = totalfinalBinaryEntropies2;
+			Qsteps[realY] = qstepline0;
+			System.out.println("realY:"+realY+" VARs[realY]:"+VARs[realY]+" MSEs[realY]:"+MSEs[realY]+" finalBinaryEntropies[realY]:"+finalBinaryEntropies[realY]+" totalfinalBinaryEntropies2: "+totalfinalBinaryEntropies2+" qstepline0:"+qstepline0+" euma:"+euma);
+			
+			for (int y = 1; y < currentBufferSize; y++) {
+				double MSEMinDifLine = Double.MAX_VALUE;
+				
+				int qstepMSEMinLine = -1;
+				qstepline = 0;
+				realY = currentBuffer * bufferSize + y;
+				for(int qstepBSS = BIT_MASKS.length-1; qstepBSS >= 0; qstepBSS-- ){
+					
+					if(qstepBSS == BIT_MASKS.length-1){
+						qstepline = qstepline + BIT_MASKS[qstepBSS];
+					}else{
+						if(MSEs[realY] < MSEs[currentBuffer * bufferSize]) qstepline = qstepline + BIT_MASKS[qstepBSS];
+						else				  							      qstepline = qstepline - BIT_MASKS[qstepBSS];
+					}
+					
+
+					totalfinalBinaryEntropies2 = 0; 
+					for (int z = 0; z < geo[CONS.BANDS]; z++) {
+						finalBinaryEntropies2[z][realY] = estimateRate(VARs2[z][realY],qstepline) / (double)geo[CONS.WIDTH];
+						totalfinalBinaryEntropies2 = totalfinalBinaryEntropies2 + (finalBinaryEntropies2[z][realY] * eumas2[z][realY]);
+					}
+					//finalBinaryEntropies[realY] = estimateRate(VARs[realY],qstepline);
+					finalBinaryEntropies[realY] = totalfinalBinaryEntropies2;
+					
+					
+					MSEs[realY] = estimateMSE(VARs[realY],qstepline);
+					
+					if(Math.abs(MSEs[realY] - MSEs[currentBuffer * bufferSize]) < MSEMinDifLine){
+						MSEMinDifLine = Math.abs(MSEs[realY] - MSEs[currentBuffer * bufferSize]);
+						qstepMSEMinLine = qstepline;
+					}
+					
+				}
+				Qsteps[realY] = qstepMSEMinLine;
+				MSEs[realY] = estimateMSE(VARs[realY],Qsteps[realY]);
+				
+				
+				totalfinalBinaryEntropies2 = 0; 
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {
+					finalBinaryEntropies2[z][realY] = estimateRate(VARs2[z][realY],Qsteps[realY]) / (double)geo[CONS.WIDTH];
+					totalfinalBinaryEntropies2 = totalfinalBinaryEntropies2 + (finalBinaryEntropies2[z][realY] * eumas2[z][realY]);
+				}
+				finalBinaryEntropies[realY] = totalfinalBinaryEntropies2;
+				//finalBinaryEntropies[realY] = estimateRate(VARs[realY],Qsteps[realY]);
+			}
+			
+			totalEntropy = 0;
+			for(int y = (currentBuffer * bufferSize); y < (currentBuffer * bufferSize) + currentBufferSize; y++){
+				totalEntropy = totalEntropy + finalBinaryEntropies[y];
+			}
+			totalcurrentbps = totalEntropy / currentBufferSize;
+			
+			if(Math.abs(totalcurrentbps-targetRate) < 0.01){
+				return(1);
+			}
+		}
+		//MSEs[y] = estimateMSE(VARs[y],qstepline);
+		//finalBinaryEntropies[y] = estimateRate(VARs[y],qstepline);
+		return(1);
+	}
+
+	/**
+	 * Estimate the MSE according Valssessia 2014
+	 * @param variance
+	 * @param qstep
+	 * @return
+	 */
+	private double estimateMSE(double variance, int qstep) {
+		double MSE = 0;
+		double delta = Math.sqrt(2/variance);
+		double a = Math.pow(Math.E,(-delta*((double)qstep/(double)2)));
+		double b =  Math.pow(Math.E,(delta*(double)qstep));
+		double c = (2 - 0.25 * a * (delta*delta*(double)qstep*(double)qstep+4*delta*(double)qstep+8d)) / (delta*delta);
+		double d = (-delta*(double)qstep*(delta*(double)qstep+4d)+b*(delta*(double)qstep*(delta*(double)qstep - 4 ) + 8)-8) / (4*delta*delta);
+		double e = Math.pow(Math.E,(-((double)3/(double)2)*delta*(double)qstep)) / (double)(1-Math.pow(Math.E,-delta*(double)qstep));
+		MSE = c + d * e;
+		return(MSE);
+	}
+	
+	/**
+	 * Estimate the rate according Valssessia 2014
+	 * @param variance
+	 * @param qstep
+	 * @return
+	 */
+	private double estimateRate(double variance, int qstep) {
+		
+		double rate = 0;
+		double delta = Math.sqrt(2/variance);
+		double a = Math.pow(Math.E,(-delta*((double)qstep/(double)2)));
+		double b = (1 - a);
+		double c = Math.log(b) / Math.log(2);
+		double d =  (1 - Math.pow(Math.E,(-(double)delta*(double)qstep)));
+		double e = a / Math.log(2);
+		double f = Math.log((double)d/(double)2);
+		double g = (delta*(double)qstep) / (double)2;
+		double h = (delta*(double)qstep) / (double)d;
+		
+		rate = -b * c - e * (f + g - h);
+		
+		return(rate);
+	}
+	
+	private double computeVariance(int [][][] predictedLines) {
+		double variance = 0;
+		double mean = 0;
+		for (int z = 0; z < geo[CONS.BANDS]; z++) {
+		for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+			mean = mean + predictedLines[z][1][x];
+		}}
+		mean = mean / (geo[CONS.BANDS] * geo[CONS.WIDTH]);
+		
+		for (int z = 0; z < geo[CONS.BANDS]; z++) {
+		for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+			variance = variance + ((predictedLines[z][1][x] - mean)*(predictedLines[z][1][x] - mean));
+		}}
+		variance = variance / ((geo[CONS.BANDS] * geo[CONS.WIDTH]) - 1);
+		return variance;
+	}
+	
+	
+	private double computeVarianceLinebyLine(int z, int [][][] predictedLines) {
+		double variance = 0;
+		double mean = 0;
+		for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+			mean = mean + predictedLines[z][1][x];
+		}
+		mean = mean / geo[CONS.WIDTH];
+		
+		for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+			variance = variance + ((predictedLines[z][1][x] - mean)*(predictedLines[z][1][x] - mean));
+		}
+		variance = variance / (geo[CONS.WIDTH] - 1);
+		return variance;
+	}
+	
+	private void QuantizePredictSpectralLine2(int realY, int y, int[] Qsteps, int qstep, int currentBuffer, int currentBufferSize, int[][][] bufferRC, int[][][] lastLineRC, int[][][] lastLinePredictedRC, int[][][] predictedLinesRef, int[][][] lines) {
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		Qsteps[realY] = qstep;
+		uq.setQuantizationStep(qstep);
+		predictorRC.resetMSE();
+		MSEs[realY] = 0;
+		
+		
+		if(y == 0){
+			for(int z = 0; z < geo[CONS.BANDS]; z++) {
+			for(int x = 0; x < geo[CONS.WIDTH]; x++) {
+				lines[z][0][x] = lastLineRC[z][1][x]; ///////////si es el primer buffer sino posa
+				predictedLines[z][0][x] = lastLinePredictedRC[z][1][x];
+				predictedLinesRef[z][0][x] = lastLinePredictedRC[z][1][x];
+			}}
+			//System.out.println(lines[1][0][110]);
+			lines = loadOriginalSpectralLineNotMoving(y, lines, bufferRC);
+		}else{
+			if(qstep == BIT_MASKS[BIT_MASKS.length-1]){//first qstep search (256-0)/2=128
+				lines = loadOriginalSpectralLine(y, lines, bufferRC);
+			}else{
+				lines = loadOriginalSpectralLineNotMoving(y, lines, bufferRC);
+			}
+		}
+		for (int z = 0; z < geo[CONS.BANDS]; z++) {
+		for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+			predictedLines[z][0][x] = predictedLinesRef[z][0][x];
+			predictedLines[z][1][x] = predictorRC.compress(lines, z, realY, x, z, 1, uq);
+		}}	
+		finalBinaryEntropies[realY] = BIBinaryContextualEntropy2(y, predictedLines);
+		MSEs[realY] = predictorRC.getMSE(geo[CONS.BANDS]*geo[CONS.WIDTH]);
+	}
+	
+	
+	private void codeBIACQstepSpectralLine2(int[] Qsteps) throws IOException, ParameterException{
+		//TODO
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ? geo[CONS.BANDS] / M :geo[CONS.BANDS] / M + 1;
+			
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			
+			
+			FileWriter file = new FileWriter("qsteps.txt");
+			PrintWriter pw = new PrintWriter(file);
+			lines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			predictedLines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			double bpsTotal = 0;
+			double bpsPreviousLine = 0;
+			image = null;
+			image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			it = null;
+			it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				//preparelines
+				prepareLines(y, lines, it);
+				uq.setQuantizationStep(Qsteps[y]);
+				ec.resetNumBitsWritten();
+				//predictor.resetMSE();
+				for (int i = 0; i < auxValue; i++) {
+					for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+						predictor.resetMSE();
+							for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+							//if(y == 16 && z == 0 && x < 10)System.out.println("xxxx> "+predictedLines[z][1][x]);
+							predictedLines[z][0][x] = predictedLines[z][1][x];
+							predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+						}
+						//System.out.println(z+":"+y+":"+predictor.getMSE(geo[CONS.WIDTH]));
+					}
+					BIAC(M, i, y, predictedLines);
+				}
+				
+				System.out.println(y+":"+predictor.getMSE(geo[CONS.WIDTH]*geo[CONS.BANDS])+":"+((double)ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]*geo[CONS.BANDS])));
+				bpsPreviousLine = (double)ec.getNumBitsWritten()/(geo[CONS.WIDTH]*geo[CONS.BANDS]);
+				bpsTotal = bpsTotal + bpsPreviousLine;
+				pw.println(String.valueOf(Qsteps[y]));
+				
+				
+				
+				
+			}
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+	}
+	
+	
+	
+	private void codeBIACQstepSpectralLine2EstimatingAchievingRate(int[] Qsteps) throws IOException, ParameterException{
+		//TODO
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ? geo[CONS.BANDS] / M :geo[CONS.BANDS] / M + 1;
+			
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		double deviationRate = 0;
+		double totalSize = 0;
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			
+			
+			FileWriter file = new FileWriter("qsteps.txt");
+			PrintWriter pw = new PrintWriter(file);
+			lines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			predictedLines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			image = null;
+			image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			it = null;
+			it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				
+				double entropybps =  this.finalBinaryEntropies[y]/(double)(geo[CONS.WIDTH]*geo[CONS.BANDS]);
+				double totalbps = totalSize /(double)(geo[CONS.WIDTH]*geo[CONS.BANDS]*y);
+				prepareLines(y, lines, it);
+				if(y == 0) {
+					if(Math.abs(totalbps - targetRate) > 0.001){
+						if(totalbps < targetRate) Qsteps[y]--;
+						if(totalbps > targetRate) Qsteps[y]++;
+					}
+				}else {
+					
+					if(Math.abs(totalbps - targetRate) > 0.001){
+						if(totalbps < targetRate) Qsteps[y]--;
+						if(totalbps > targetRate) Qsteps[y]++;
+					}
+					
+					/*if(Math.abs(entropybps - targetRate) > 0.025){
+						if(this.MSEs[y] > this.MSEs[0] && totalbps < targetRate) Qsteps[y]--;
+						if(this.MSEs[y] < this.MSEs[0] && totalbps > targetRate) Qsteps[y]++;
+					}*/
+					
+				}
+				
+				if(Qsteps[y] < 1) Qsteps[y] = 1;
+				uq.setQuantizationStep(Qsteps[y]);
+				ec.resetNumBitsWritten();
+				predictor.resetMSE();
+				for (int i = 0; i < auxValue; i++) {
+					for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+					for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+						//if(y == 16 && z == 0 && x < 10)System.out.println("xxxx> "+predictedLines[z][1][x]);
+						predictedLines[z][0][x] = predictedLines[z][1][x];
+						predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+					}}
+					BIAC(M, i, y, predictedLines);
+				}
+				
+				pw.println(String.valueOf(Qsteps[y]));
+				System.out.println(y+":"+predictor.getMSE(geo[CONS.WIDTH]*geo[CONS.BANDS])+":"+((double)ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]*geo[CONS.BANDS]))+":"+Qsteps[y]);
+				totalSize = totalSize + (double)ec.getNumBitsWritten();
+				
+				
+			}
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+	}
+	
+	private void codeBIACQstepSpectralLine2AchievingRate(int[] Qsteps) throws IOException, ParameterException{
+		//TODO
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ? geo[CONS.BANDS] / M :geo[CONS.BANDS] / M + 1;
+			
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		double deviationRate = 0;
+		double totalSize = 0;
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			
+			
+			FileWriter file = new FileWriter("qsteps.txt");
+			PrintWriter pw = new PrintWriter(file);
+			lines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			predictedLines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			image = null;
+			image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			it = null;
+			it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				
+				double entropybps =  this.finalBinaryEntropies[y]/(double)(geo[CONS.WIDTH]*geo[CONS.BANDS]);
+				double totalbps = totalSize /(double)(geo[CONS.WIDTH]*geo[CONS.BANDS]*y);
+				prepareLines(y, lines, it);
+				if(y == 0) {
+					if(Math.abs(entropybps - targetRate) > 0.001){
+						if(entropybps < targetRate) Qsteps[y] = Qsteps[y]--;
+						if(entropybps > targetRate) Qsteps[y] = Qsteps[y]++;
+					}
+				}else {
+					
+					if(Math.abs(totalbps - targetRate) > 0.001){
+						if(entropybps < targetRate && totalbps < targetRate) Qsteps[y]--;
+						if(entropybps > targetRate && totalbps > targetRate) Qsteps[y]++;
+					}
+					
+				}
+				
+				if(Qsteps[y] < 1) Qsteps[y] = 1;
+				uq.setQuantizationStep(Qsteps[y]);
+				ec.resetNumBitsWritten();
+				
+				
+				//predictor.resetMSE();
+				for (int i = 0; i < auxValue; i++) {
+					for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+						predictor.resetMSE();
+						for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+							predictedLines[z][0][x] = predictedLines[z][1][x];
+							predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+						}
+						//System.out.println(z+":"+y+":"+predictor.getMSE(geo[CONS.WIDTH]));
+					}
+					BIAC(M, i, y, predictedLines);
+				}
+				
+				pw.println(String.valueOf(Qsteps[y]));
+				System.out.println(y+":"+predictor.getMSE(geo[CONS.WIDTH]*geo[CONS.BANDS])+":"+((double)ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]*geo[CONS.BANDS])));
+				totalSize = totalSize + (double)ec.getNumBitsWritten();
+				
+				
+			}
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+	}
+	
+	
+	
+	
+	
+	
+	private void codeBIACRateControlProposal3(boolean verbose) throws IOException, ParameterException, ClassNotFoundException, CloneNotSupportedException {
+		predictorRC = new Predictor(parameters);
+		//predictor = predictorRC.clone();
+		predictor = new Predictor(parameters);
+		cm = new ContextModelling(contextModel);
+		numOfContexts = cm.getNumberOfContexts(MAXBITS);
+		numBitsPrecision = 15;
+		coderWordLength = 48;
+		cp = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+		ec = new ArithmeticCoderFLW(coderWordLength, numBitsPrecision, numOfContexts);
+		
+		cmRC = new ContextModelling(contextModel);
+		numOfContexts = cmRC.getNumberOfContexts(MAXBITS);
+		cpRC = new ContextProbability(probabilityModel, numOfContexts, numBitsPrecision, quantizerProbabilityLUT, parameters.entropyCoderType, WINDOW_PROB, UPDATE_PROB0);
+	 
+		//This structure contains the last line of the previous buffer for the Rate control
+		int lastLineRC[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int lastLinePredictedRC[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		Qsteps2 = new int[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		MSEs2 = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		finalBinaryEntropies2 = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		
+		int currentBufferSize = 0;
+		//predictor = new Predictor(this.parameters);
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			//Fill structure with the maximum buffersize
+			int numOfBuffers = (int) Math.ceil((float)geo[CONS.HEIGHT]/(float)bufferSize);
+			//reset total entropy and MSE
+			
+			
+			for(int currentBuffer = 0; currentBuffer < numOfBuffers; currentBuffer++){
+				if((currentBuffer+1) * bufferSize < geo[CONS.HEIGHT]) currentBufferSize = bufferSize;
+				else											  	     currentBufferSize = geo[CONS.HEIGHT]-(currentBuffer * bufferSize);
+				
+				//Buffer for the RC
+				int bufferRC[][][] = new int[geo[CONS.BANDS]][currentBufferSize][geo[CONS.WIDTH]];
+				//Buffer for the Coder
+				int bufferCoder[][][] = new int[geo[CONS.BANDS]][currentBufferSize][geo[CONS.WIDTH]];
+				
+				//Filling the buffer
+				
+				for (int y = 0; y < currentBufferSize; y++) {
+					int currentLine = currentBuffer*bufferSize+y;
+					for(int z = 0; z < geo[CONS.BANDS];z++) {
+						bufferRC[z][y] = it.next();
+						Qsteps2[z][currentLine] = -1;
+					}
+					
+				}
+				
+				copyOf3Dim(bufferRC, bufferCoder);
+				
+				rateControl3(currentBuffer, currentBufferSize, bufferRC, lastLineRC, lastLinePredictedRC);
+		
+			}
+			
+			
+			////////// START CODING //////////
+			if(RCStrategy == 3) codeBIACQstepSpectralLine3();
+			if(RCStrategy == 6){
+				//codeBIACQstepSpectralLine3AchievingRate();
+				codeBIACQstepSpectralLine3AchievingRate2();
+			}
+			
+			
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+							
+					
+					
+					
+		}
+	
+	//TODO
+	private int rateControl3(int currentBuffer, int currentBufferSize, int[][][] bufferRC, int[][][] lastLineRC, int[][][] lastLinePredictedRC) throws IOException, ClassNotFoundException {
+		
+		double totalEntropy = 0;
+		double totalcurrentbps = 0;
+		int qstepline0 = 0;
+		int qstepline = 0;
+		int realY = -1;
+		int predictedLinesRef[][][] = new int[geo[CONS.BANDS]][1][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int Qsteps2TMP[][] = new int[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		double MSEs2TMP[][] = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		double finalBinaryEntropies2TMP[][] = new double[geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+		
+		putSerializedPredictorCPBufferObject();
+		
+		for(int qstepBS = BIT_MASKS.length-1; qstepBS >= 0; qstepBS-- ){
+			getSerializedPredictorCPBufferObject();
+			totalEntropy = 0;
+			
+			if(qstepBS == BIT_MASKS.length-1){
+				qstepline0 = qstepline0 + BIT_MASKS[qstepBS];
+			}else{
+				if(totalcurrentbps < targetRate) qstepline0 = qstepline0 - BIT_MASKS[qstepBS];
+				else				                 qstepline0 = qstepline0 + BIT_MASKS[qstepBS];
+			}
+			realY = currentBuffer * bufferSize + 0;
+			
+			//int zz = 1;
+			
+			/*
+			QuantizePredictSpectralLine3(0, realY, 0, qstepline0, currentBuffer, currentBufferSize,  bufferRC, lastLineRC, lastLinePredictedRC, predictedLinesRef, lines);
+			putSerializedPredictorCPLineObject();
+				
+			double MSEMinDifLine[][] = new double [geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+			double BinaryEntropyMSEMinDifLine[][] = new double [geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+			int qstepMSEMinLine[][] = new int [geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+			System.out.println("==== "+realY+":0:0:"+targetRate+":"+totalcurrentbps+":"+(BIT_MASKS.length-1-qstepBS)+":"+MSEs2[0][currentBuffer * bufferSize]+":"+MSEs2[0][realY]+":"+(finalBinaryEntropies2[0][realY]/(double)(geo[CONS.WIDTH])+":"+Qsteps2[0][realY]));
+			*/
+			double MSEMinDifLine[][] = new double [geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+			double BinaryEntropyMSEMinDifLine[][] = new double [geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+			int qstepMSEMinLine[][] = new int [geo[CONS.BANDS]][geo[CONS.HEIGHT]];
+			
+			for (int y = 0; y < currentBufferSize; y++) {
+			for (int z = 0; z < geo[CONS.BANDS]; z++) {
+				//zz = 0;
+				realY = currentBuffer * bufferSize + y;
+				if(y == 0 && z == 0) {
+					QuantizePredictSpectralLine3(z, realY, 0, qstepline0, currentBuffer, currentBufferSize,  bufferRC, lastLineRC, lastLinePredictedRC, predictedLinesRef, lines);
+					putSerializedPredictorCPLineObject();
+					qstepMSEMinLine[z][realY] = qstepline0;
+					Qsteps2[z][realY] = qstepMSEMinLine[z][realY];
+					//System.out.println(qstepBS+ "==== "+realY+":0:0:"+targetRate+":"+totalcurrentbps+":"+(BIT_MASKS.length-1-qstepBS)+":"+MSEs2[0][currentBuffer * bufferSize]+":"+MSEs2[0][realY]+":"+(finalBinaryEntropies2[0][realY]/(double)(geo[CONS.WIDTH])+":"+Qsteps2[0][realY]));
+				}else {
+				//Fer aquestes 3 variables per en una matriu per Z i Y, els valors van canviant!!!! //TODO
+				
+					MSEMinDifLine[z][realY] = Double.MAX_VALUE;
+					BinaryEntropyMSEMinDifLine[z][realY] = 0;
+					qstepMSEMinLine[z][realY] = -1;
+					
+					qstepline = 0;
+					
+					for(int qstepBSS = BIT_MASKS.length-1; qstepBSS >= 0; qstepBSS-- ){
+						
+						if(qstepBSS == BIT_MASKS.length-1){
+							qstepline = qstepline + BIT_MASKS[qstepBSS];
+						}else{
+							if(MSEs2[z][realY] < MSEs2[0][currentBuffer * bufferSize]) 	qstepline = qstepline + BIT_MASKS[qstepBSS];
+							else				  							      			qstepline = qstepline - BIT_MASKS[qstepBSS];
+						}
+						getSerializedPredictorCPLineObject();
+						QuantizePredictSpectralLine3(z, realY, y, qstepline, currentBuffer, currentBufferSize,  bufferRC, lastLineRC, lastLinePredictedRC, predictedLinesRef, lines);
+						//Conditional MSE
+						
+						//System.out.println("--- "+realY+":"+y+":"+z+":"+MSEs2[0][currentBuffer * bufferSize]+":"+MSEs2[z][realY]+":"+(finalBinaryEntropies2[z][realY]/(double)(geo[CONS.WIDTH]))+":"+Qsteps2[z][realY]+":"+qstepMSEMinLine[z][realY]);
+						if(Math.abs(MSEs2[z][realY] - MSEs2[0][currentBuffer * bufferSize]) < MSEMinDifLine[z][realY]){
+							MSEMinDifLine[z][realY] = Math.abs(MSEs2[z][realY] - MSEs2[0][currentBuffer * bufferSize]);
+							qstepMSEMinLine[z][realY] = qstepline;
+						}
+						
+						
+					}
+					
+					getSerializedPredictorCPLineObject();
+					uq.setQuantizationStep(qstepMSEMinLine[z][realY]);
+					lines = loadOriginalLineNotMoving(z, y, lines, bufferRC);
+					BinaryEntropyMSEMinDifLine[z][realY] = 0;
+					predictorRC.resetMSE();
+					for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+						predictedLines[z][0][x] = predictedLinesRef[z][0][x];
+						predictedLines[z][1][x] = predictorRC.compress(lines, z, realY, x, z, 1, uq);
+						predictedLinesRef[z][0][x] = predictedLines[z][1][x];
+					}
+					
+					BinaryEntropyMSEMinDifLine[z][realY] = BIBinaryContextualEntropy3(z, y, predictedLines);
+					
+					Qsteps2[z][realY] = qstepMSEMinLine[z][realY];
+					MSEs2[z][realY] = predictorRC.getMSE(geo[CONS.WIDTH]);
+				//	System.out.println("====>>>> "+realY+":"+y+":"+z+":"+MSEs2[0][currentBuffer * bufferSize]+":"+MSEs2[z][realY]+":"+(BinaryEntropyMSEMinDifLine[z][realY]/(double)(geo[CONS.WIDTH]))+":"+Qsteps2[z][realY]+":"+qstepMSEMinLine[z][realY]);
+					finalBinaryEntropies2[z][realY] = BinaryEntropyMSEMinDifLine[z][realY];
+					putSerializedPredictorCPLineObject();
+				}
+			}}
+			//System.out.println("=========");
+			
+			
+			//Entropy must estimated when the MSE has maximum similarity with MSE of line 0 (MSE[0]).
+			totalEntropy = 0;
+			for (int z = 0; z < geo[CONS.BANDS]; z++) {
+			for (int y = 0; y < currentBufferSize; y++) {
+				realY = currentBuffer * bufferSize + y;
+				totalEntropy = totalEntropy + finalBinaryEntropies2[z][realY];
+				//System.out.println(finalBinaryEntropies2[z][realY]/geo[CONS.WIDTH]);
+			}}
+			totalcurrentbps = totalEntropy / (double)(geo[CONS.BANDS]*geo[CONS.WIDTH]* currentBufferSize);
+			totalcurrentbps = totalcurrentbps - 0.025; //0.02 corresponds to the deviation between entropy estimation and real coding.
+			double diffRate = Math.abs(totalcurrentbps-targetRate);
+			
+			//System.out.println("totalcurrentbps: "+totalcurrentbps);
+			//System.out.println("========= "+diffRate+" "+minDiffRate);
+			
+			if(diffRate < minDiffRate){
+				minDiffRate = diffRate;
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {
+				for (int y = 0; y < currentBufferSize; y++) {
+					realY = currentBuffer * bufferSize + y; 
+					Qsteps2TMP[z][realY] = Qsteps2[z][realY];
+					MSEs2TMP[z][realY] = MSEs2[z][realY];
+					finalBinaryEntropies2TMP[z][realY] = finalBinaryEntropies2[z][realY];
+				}}
+				
+			}
+			if(diffRate < 0.0125){
+				//save last line of the current buffer
+				copyOf3Dim(lines, lastLineRC);
+				copyOf3Dim(predictedLines, lastLinePredictedRC);
+				putSerializedPredictorCPBufferObject();
+				return(1);
+			}
+		}
+		
+		for (int z = 0; z < geo[CONS.BANDS]; z++) {
+		for (int y = 0; y < currentBufferSize; y++) {
+				realY = currentBuffer * bufferSize + y; 
+				Qsteps2[z][realY] = Qsteps2TMP[z][realY];
+				MSEs2[z][realY] = MSEs2TMP[z][realY];
+				finalBinaryEntropies2[z][realY] = finalBinaryEntropies2TMP[z][realY];
+		}}
+		
+		copyOf3Dim(lines, lastLineRC);
+		copyOf3Dim(predictedLines, lastLinePredictedRC);
+		putSerializedPredictorCPBufferObject();
+		return(1);
+	}
+	
+	private void QuantizePredictSpectralLine3(int z, int realY, int y, int qstep, int currentBuffer, int currentBufferSize, int[][][] bufferRC, int[][][] lastLineRC, int[][][] lastLinePredictedRC, int[][][] predictedLinesRef, int[][][] lines) {
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		
+		Qsteps2[z][realY] = qstep;
+		uq.setQuantizationStep(qstep);
+		predictorRC.resetMSE();
+		MSEs2[z][realY] = 0;
+		
+		
+		if(y == 0){
+			
+			for(int x = 0; x < geo[CONS.WIDTH]; x++) {
+				lines[z][0][x] = lastLineRC[z][1][x]; ///////////si es el primer buffer sino posa
+				predictedLines[z][0][x] = lastLinePredictedRC[z][1][x];
+				predictedLinesRef[z][0][x] = lastLinePredictedRC[z][1][x];
+			}
+			lines = loadOriginalLineNotMoving(z, y, lines, bufferRC);
+		}else{
+			
+			if(qstep == BIT_MASKS[BIT_MASKS.length-1]){//first qstep search (256-0)/2=128
+				lines = loadOriginalLine(z, y, lines, bufferRC);
+			}else{
+				lines = loadOriginalLineNotMoving(z, y, lines, bufferRC);
+			}
+		}
+		
+		//System.out.println("1)"+predictorRC.getMSE(geo[CONS.WIDTH]));
+		for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+			predictedLines[z][0][x] = predictedLinesRef[z][0][x];
+			predictedLines[z][1][x] = predictorRC.compress(lines, z, realY, x, z, 1, uq);
+			lastLineRC[z][1][x] = lines[z][0][x];///////////////// !!!!!!!!!!!!!!!!!!
+		}
+		
+		finalBinaryEntropies2[z][realY] = BIBinaryContextualEntropy3(z, y, predictedLines);
+		//System.out.println("2)"+predictorRC.getMSE(geo[CONS.WIDTH])+" qstep:"+qstep);
+		MSEs2[z][realY] = predictorRC.getMSE(geo[CONS.WIDTH]);
+		//System.out.println("--- "+realY+":"+y+":"+z+":"+MSEs2[0][currentBuffer * bufferSize]+":"+MSEs2[z][realY]+":"+(finalBinaryEntropies2[z][realY]/(double)(geo[CONS.WIDTH])+":"+Qsteps2[z][realY]));
+	}
+	
+	
+	
+	
+	private void codeBIACQstepSpectralLine3() throws IOException, ParameterException{
+		//TODO
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ? geo[CONS.BANDS] / M :geo[CONS.BANDS] / M + 1;
+			
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			
+			
+			FileWriter file = new FileWriter("qsteps.txt");
+			PrintWriter pw = new PrintWriter(file);
+			lines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			predictedLines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			double totalbps = 0;
+			double bpsPreviousLine = 0;
+			image = null;
+			image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			it = null;
+			it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				//preparelines
+				prepareLines(y, lines, it);
+				predictor.resetMSE();
+				ec.resetNumBitsWritten();
+				for (int i = 0; i < auxValue; i++) {
+					for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+						uq.setQuantizationStep(Qsteps2[z][y]);
+						ec.resetNumBitsWritten();
+						predictor.resetMSE();
+						for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+							//if(y == 16 && z == 0 && x < 10)System.out.println("xxxx> "+predictedLines[z][1][x]);
+							predictedLines[z][0][x] = predictedLines[z][1][x];
+							predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+						}
+						BIAC3(z, M, i, y, predictedLines);
+						bpsPreviousLine = (double)ec.getNumBitsWritten()/(geo[CONS.WIDTH]*geo[CONS.BANDS]);
+						totalbps = totalbps + bpsPreviousLine;
+						System.out.println(z+":"+y+":"+predictor.getMSE(geo[CONS.WIDTH])+":"+((double)ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]))+":"+Qsteps2[z][y]+":"+(totalbps/(y+1)));
+						pw.println(String.valueOf(Qsteps2[z][y]));
+					}
+					
+				}
+				
+				
+				
+				
+				
+				
+			}
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+	}
+	
+	
+	private void codeBIACQstepSpectralLine3AchievingRate() throws IOException, ParameterException{
+		//TODO
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ? geo[CONS.BANDS] / M :geo[CONS.BANDS] / M + 1;
+			
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			
+			
+			FileWriter file = new FileWriter("qsteps.txt");
+			PrintWriter pw = new PrintWriter(file);
+			lines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			predictedLines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			double totalSize = 0;
+			double bpsPreviousLine = 0;
+			image = null;
+			image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			it = null;
+			it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			long counterLines = 0;
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				//preparelines
+				prepareLines(y, lines, it);
+				predictor.resetMSE();
+				ec.resetNumBitsWritten();
+				for (int i = 0; i < auxValue; i++) {
+					for (int z = i * M; z < Math.min((i+1) * M, geo[CONS.BANDS]); z++) {
+						
+						double totalbps = totalSize /(double)(geo[CONS.WIDTH]*counterLines);
+						if(y == 0 && z == 0) {
+							double entropybps =  this.finalBinaryEntropies2[z][y]/(double)(geo[CONS.WIDTH]);
+							if(Math.abs(entropybps - targetRate) > 0.0125){
+								if(entropybps < targetRate) Qsteps2[z][y] = Qsteps2[z][y] - 1;
+								if(entropybps > targetRate) Qsteps2[z][y] = Qsteps2[z][y] + 1;
+							}
+						}else {
+							
+							if(Math.abs(totalbps - targetRate) > 0.0125){
+								if(totalbps < targetRate) Qsteps2[z][y] = Qsteps2[z][y] - 1;
+								if(totalbps > targetRate) Qsteps2[z][y] = Qsteps2[z][y] + 1;
+							}
+							
+							//if(Math.abs(totalbps - targetRate) > 0.001){
+							//	if(entropybps < targetRate && totalbps < targetRate) Qsteps2[z][y] = Qsteps2[z][y] - 2;
+							//	if(entropybps > targetRate && totalbps > targetRate) Qsteps2[z][y] = Qsteps2[z][y] + 2;
+							//}							
+						}
+						if(Qsteps2[z][y] < 1) Qsteps2[z][y] = 1;
+						uq.setQuantizationStep(Qsteps2[z][y]);
+						ec.resetNumBitsWritten();
+						predictor.resetMSE();
+						for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+							predictedLines[z][0][x] = predictedLines[z][1][x];
+							predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+						}
+						BIAC3(z, M, i, y, predictedLines);
+						counterLines++;
+						totalSize = totalSize + (double)ec.getNumBitsWritten();
+						totalbps = (totalSize / (geo[CONS.WIDTH]*counterLines));
+						System.out.println(z+":"+y+":"+predictor.getMSE(geo[CONS.WIDTH])+":"+((double)ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]))+":"+Qsteps2[z][y]+":"+totalbps);
+						pw.println(String.valueOf(Qsteps2[z][y]));
+					}
+					
+				}
+				
+				
+				
+				
+				
+				
+			}
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+	}
+	
+	
+	private void codeBIACQstepSpectralLine3AchievingRate2() throws IOException, ParameterException{
+		//TODO
+		int M = parameters.subframeInterleavingDepth;
+		int auxValue = (geo[CONS.BANDS] % M == 0) ? geo[CONS.BANDS] / M :geo[CONS.BANDS] / M + 1;
+			
+		int lines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		int predictedLines[][][] = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+		
+		
+		try {
+			RawImage image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			RawImageIterator<int[]> it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			//System.out.println("FILLING THE BUFFER");
+			
+			
+			FileWriter file = new FileWriter("qsteps.txt");
+			PrintWriter pw = new PrintWriter(file);
+			lines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			predictedLines = new int[geo[CONS.BANDS]][2][geo[CONS.WIDTH]];
+			double totalSize = 0;
+			double bpsPreviousLine = 0;
+			image = null;
+			image = new RawImage(inputFile, geo, originalPixelOrder, RawImage.READ);
+			it = null;
+			it = (RawImageIterator<int[]>) image.getIterator(new int[0], pixelOrderTransformation, RawImage.READ, true);
+			long counterLines = 0;
+			double currentError = 0;
+			double previousError = 0;
+			double totalbps = targetRate;
+			for (int y = 0; y < geo[CONS.HEIGHT]; y++) {
+				//preparelines
+				prepareLines(y, lines, it);
+				predictor.resetMSE();
+				ec.resetNumBitsWritten();
+				for (int z = 0; z < geo[CONS.BANDS]; z++) {
+						
+					
+						
+					
+					
+						double estimatedTotalbps = totalSize;
+						int zini = z;
+						for (int yy = y; yy < geo[CONS.HEIGHT]; yy++) {
+							for (int zz = zini; zz < geo[CONS.BANDS]; zz++) {	
+								estimatedTotalbps = estimatedTotalbps + finalBinaryEntropies2[zz][yy];
+							}
+							zini = 0;
+						}
+						estimatedTotalbps = estimatedTotalbps / (geo[CONS.HEIGHT]*geo[CONS.BANDS]*geo[CONS.WIDTH]);
+					
+						if(y == 0 && z == 0) {
+							if(Math.abs(estimatedTotalbps - targetRate) > 0.0125){
+								if(estimatedTotalbps < targetRate) {
+										Qsteps2[z][y] = Qsteps2[z][y] - 1;
+									
+								}else {
+										Qsteps2[z][y] = Qsteps2[z][y] + 1;	
+								}
+							}
+						}else {
+							if(Math.abs(estimatedTotalbps - targetRate) > 0.0125){
+								if(estimatedTotalbps < targetRate) {
+									if(MSEs2[0][0] < MSEs2[z][y]) {
+										Qsteps2[z][y] = Qsteps2[z][y] - 1;
+									}
+								}else {
+									if(MSEs2[0][0] > MSEs2[z][y]) {
+										Qsteps2[z][y] = Qsteps2[z][y] + 1;
+									}	
+								}
+							}
+						}
+						
+						
+						
+						
+						/*if(Math.abs(estimatedTotalbps - targetRate) > 0.0125){
+							if(estimatedTotalbps < targetRate) {
+								if(MSEs2[0][0] < MSEs2[z][y]) {
+									Qsteps2[z][y] = Qsteps2[z][y] - 1;
+								}
+							}else {
+								if(MSEs2[0][0] > MSEs2[z][y]) {
+									Qsteps2[z][y] = Qsteps2[z][y] + 1;
+								}	
+							}
+						}*/
+					
+						
+						if(Qsteps2[z][y] < 1) Qsteps2[z][y] = 1;
+						
+						
+						uq.setQuantizationStep(Qsteps2[z][y]);
+						ec.resetNumBitsWritten();
+						predictor.resetMSE();
+						for (int x = 0; x < geo[CONS.WIDTH]; x++) {
+							predictedLines[z][0][x] = predictedLines[z][1][x];
+							predictedLines[z][1][x] = predictor.compress(lines, z, y, x, z, 1, uq);
+						}
+						MSEs2[z][y] = predictor.getMSE(geo[CONS.WIDTH]);
+						//BIAC3(z, M, i, y, predictedLines);
+						BIAC3(z, M, 0, y, predictedLines);
+						counterLines++;
+						totalSize = totalSize + (double)ec.getNumBitsWritten();
+						totalbps = (totalSize / (geo[CONS.WIDTH]*counterLines));
+						
+						
+						
+						//currentError = totalbps - targetRate;
+						currentError = estimatedTotalbps - targetRate;
+					    double diffError = currentError - previousError;
+					    
+					    /*double a =  diffError * ((geo[CONS.HEIGHT]*geo[CONS.BANDS])-counterLines);
+						previousError = currentError;
+						previousSign = Math.signum(previousError);
+						*/
+						/*if(Math.abs(currentError) > 0.005){
+							
+							if(estimatedTotalbps < targetRate){
+								slope = -1;
+							}
+							if(estimatedTotalbps > targetRate){
+								slope = 1;
+							}
+						}
+						
+						if(previousslope != slope) inc = 0;
+						previousslope = slope;
+						if(Math.abs(currentError) > 0.005){
+							if(estimatedTotalbps < targetRate){
+								  inc = inc - 2;
+							}
+							if(estimatedTotalbps > targetRate){
+								inc = inc + 2;
+							}
+						}else{
+							inc = 0;
+						}*/
+						
+						
+						
+						
+						//System.out.println(MSEs2[z][y]+" "+predictor.getMSE(geo[CONS.WIDTH])+"  "+qstepori+":"+Qsteps2[z][y]+" "+inc+"   "+totalbps+"   "+diffError+"   "+estimatedTotalbps+" "+slope);
+						//System.out.println(targetRate+":"+z+":"+y+":"+predictor.getMSE(geo[CONS.WIDTH])+":"+MSEs2[z][y]+":"+(finalBinaryEntropies2[z][y]/(double)(geo[CONS.WIDTH]*counterLines))+":"+(ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]*counterLines))+":"+qstepori+":"+Qsteps2[z][y]+":"+inc+":"+totalbps);
+						System.out.println(z+":"+y+":"+predictor.getMSE(geo[CONS.WIDTH])+":"+((double)ec.getNumBitsWritten()/(double)(geo[CONS.WIDTH]))+":"+Qsteps2[z][y]+":"+totalbps);
+						pw.println(String.valueOf(Qsteps2[z][y]));
+				}
+				
+				
+				
+				
+				
+			}
+			pw.flush();
+			pw.close();
+			ec.terminate();
+			fileStream.write(ec.getByteStream().getByteStream(),0,(int) ec.getByteStream().getLength());
+			image.close(it);
+			
+				
+			}catch(UnsupportedOperationException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(IndexOutOfBoundsException e) {
+				e.printStackTrace(System.err);
+				
+			}catch(ClassCastException e) {
+				e.printStackTrace(System.err);
+				
+			}
+	}
+	/**
+	 * Tries to read the line y of all bands and reorders the lines for prediction
+	 * @param y is the line of the image that will be loaded for all bands
+	 * @param bands is the array with the last lines loaded
+	 * @param it the BIL iterator over the image
+	 */
+	private void getLine(int y, int[][][] bands, RawImageIterator<int[]> it) {
+		for(int i=0;i<geo[CONS.BANDS];i++) {
+			bands[i][0] = it.next();
+		}
+		
+	}
+	
+	/**
+	 * Tries to read the line y of all bands and reorders the lines for prediction
+	 * @param y is the line of the image that will be loaded for all bands
+	 * @param bands is the array with the last lines loaded
+	 * @param it the BIL iterator over the image
+	 */
+	private void prepareLines(int y, int[][][] bands, RawImageIterator<int[]> it) {
+		if(y != 0) {
+			for(int i=0;i<geo[CONS.BANDS];i++) {
+				bands[i][0] = bands[i][1];
+			}
+		}
+		for(int i=0;i<geo[CONS.BANDS];i++) {
+			bands[i][1] = it.next();
+			
+		}
+		
+	}
+	
+	
+	private void updateQStepList(int selection){
+		int quantizationStep = quantizationStepList.get(selection);
+		int increase [] = {-1, 0, 1, 2, 4, 6};
+		int decrease [] = {-6, -4, -2, -1, 0 ,1};
+		
+		//System.out.println("maxQStep: "+maxQStep+" quantizationStep: "+quantizationStep);
+		/*if(quantizationStep >= maxQStep){
+			for (int i = 0; i < N; i++){
+				int qstep = quantizationStep+increase[i];
+				if(qstep < 1) qstep = 1;
+				quantizationStepList.set(i, qstep);
+			//	System.out.println("AAAA: "+quantizationStep+" "+quantizationStepList.get(i));
+			}
+		}else{
+			for (int i = 0; i < N; i++){
+				int qstep = quantizationStep+decrease[i];
+				if(qstep < 1) qstep = 1;
+				quantizationStepList.set(i, qstep);
+				//System.out.println("BBBBB: "+quantizationStep+" "+quantizationStepList.get(i));
+			}
+		}
+		maxQStep = quantizationStepList.get(N-1);
+		//maxQStep
+		
+		/*int var [] = {-3, -1, 0, 1 ,3};
+		System.out.println("quantizationStep: "+quantizationStep);
+		if (quantizationStep + var[0] < 1) { 
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i, i+1);
+				if (i == N - 1 && quantizationStep == 24) quantizationStepList.set(i, quantizationStep + var[i]);
+				System.out.println("AAAA: "+quantizationStep+" "+i+" "+(i+1)+" "+quantizationStepList.get(i));
+			}
+		}else if (quantizationStep + var[N-1] > 16){
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i, i + 12);
+				if (i == 0 && quantizationStep == 14) quantizationStepList.set(i, quantizationStep + var[i]);
+				System.out.println("CCCC: "+quantizationStep+" "+i+" "+(i+14)+" "+quantizationStepList.get(i));
+			}
+		}else{
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i,quantizationStep + var[i]);
+				System.out.println("DDDD: "+quantizationStep+" "+i+" "+(quantizationStep + var[i])+" "+quantizationStepList.get(i));
+			}
+		}*/
+		
+		//3 QUANTIZERS
+/*		int quantizationStep = quantizationStepList.get(selection);
+		int var[] = {-1, 0, 1};//-1, 0, 1
+System.out.println("quantizationStep: "+quantizationStep);
+		if(quantizationStep + var[0] < 1){
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i, i+1);
+				System.out.println("AAAA: "+quantizationStep+" "+i+" "+(i+1)+" "+quantizationStepList.get(i));
+			}
+		} else if (quantizationStep == 16){
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i, i+14);
+				System.out.println("CCCC: "+quantizationStep+" "+i+" "+(i+14)+" "+quantizationStepList.get(i));
+			}
+		} else {
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i, quantizationStep + var[i]);
+				System.out.println("DDDD: "+quantizationStep+" "+i+" "+(quantizationStep + var[i])+" "+quantizationStepList.get(i));
+			}
+		}
+	*/
+		
+		//5 QUANTIZERS
+		//int quantizationStep = quantizationStepList.get(selection);
+		int var [] = {-3, -1, 0, 1 ,3};
+		
+		if (quantizationStep + var[0] < 1) { 
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i, i+1);
+				if (i == N - 1 && quantizationStep == 3) quantizationStepList.set(i, quantizationStep + var[i]);
+			}
+		}else if (quantizationStep + var[N-1] > 16){
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i, i + 12);
+				if (i == 0 && quantizationStep == 14) quantizationStepList.set(i, quantizationStep + var[i]);
+			}
+		}else{
+			for (int i = 0; i < N; i++){
+				quantizationStepList.set(i,quantizationStep + var[i]);
+			}
+		}
+			
+	}
+	
+	
+	
+	
+	private int chooseRate(double[] rate, double [] error){
+		int selection = N - 1;
+		
+		for (int i = N - 1 ; i >= 0 ; i--){	
+			if (adaptiveTargetRate >= rate[i]){
+				selection = i;
+			}		
+		}
+		//System.out.println(adaptiveTargetRate+" "+targetRate+" "+rate[selection]);
+		adaptiveTargetRate = adaptiveTargetRate + targetRate - (float)rate[selection];
+		//System.out.println(" --> "+adaptiveTargetRate+" "+targetRate+" "+rate[selection]);
+		return selection;
+	}
+	
+	private int chooseRateOptim(float [] rate, PrintStream ps, int segmentNumber){
+		
+		int M = parameters.subframeInterleavingDepth;//parameters.subframeInterleavingDepth
+		int selection = N - 1;
+		
+		//The first segment is coded with small qstep
+		if(segmentNumber != 1){
+			for (int i = N - 1 ; i >= 0 ; i--){	
+				if (targetRate >= rate[i]){
+					selection = i;
+				}		
+			}
+		}else{
+			for (int i = N - 1 ; i >= 0 ; i--){	
+				if (targetRate >= rate[i]){
+					selection = i;
+				}		
+			}
+			if(selection > 1){
+				selection = 1;
+			}
+		}
+		
+		
+		adaptiveTargetRate = adaptiveTargetRate + (targetRate - rate[selection]);
+
+		float variacio = targetRate - rate[selection];
+		ps.println(variacio);
+		
+		return selection;
+	}
+
+	private int chooseRate2(float [] rate, PrintStream ps, int segmentNumber){
+		
+		int M = parameters.subframeInterleavingDepth;//parameters.subframeInterleavingDepth
+		int selection = N - 1;
+		
+		for (int i = N - 1 ; i >= 0 ; i--){	
+			if (adaptiveTargetRate >= rate[i]){
+				selection = i;
+			}		
+		}
+				adaptiveTargetRate = adaptiveTargetRate + (targetRate - rate[selection]);
+
+		float variacio = targetRate - rate[selection];
+		ps.println(variacio);
+		
+		return selection;
+	}
+	
+	/**
+	 * Deep copies a 3 dimensional array
+	 * @param origen is the 3 dimensional array to be copied
+	 * @param destination is the output 3 dimensional array, which is a deep copy of array
+	 */
+	private int[][][] copyOf3Dim(int[][][] origen, int[][][]destination) {
+
+		for (int z = origen.length -1; z >= 0; z--) { 
+        	if (origen[z] != null){
+        		destination[z] = new int[origen[z].length][];
+        		for (int y = origen[z].length - 1; y >= 0; y--) { 
+        			if(origen[z][y]!=null){
+        				destination[z][y] = new int[origen[z][y].length];
+        				for (int x = origen[z][y].length - 1; x >= 0 ; x--) {
+        					destination[z][y][x] = origen[z][y][x];  
+        				}
+        			}else destination[z][y] = null;
+        		}  
+        	}else destination[z] = null;
+        }
+        
+        
+        return destination;
+	}
+	/**
+	 * Deep copies a band of a 3 dimensional array
+	 * @param array is the 3 dimensional array to be copied
+	 * @param bands is the output copy of the 3 dimensional array
+	 * @param z is the band to be copied
+	 */
+	private int[][][] copyBand(int[][][] array, int[][][]copy, int z) {
+
+        	if (array[z] != null){
+        		copy[z] = new int[array[z].length][];
+        		for (int y = array[z].length - 1; y >= 0 ; y--) { 
+        			if(array[z][y]!=null){
+        				copy[z][y] = new int[array[z][y].length];
+        				for (int x = array[z][y].length - 1; x >= 0 ; x--) {
+        					copy[z][y][x] = array[z][y][x]; 
+        				}
+        			}else copy[z][y] = null;
+        		}  
+        	}else copy[z] = null;
+        
+        return copy;
+	}
+	
+	/**
+	 * Deep copies a band of a 3 dimensional array
+	 * @param array is the 3 dimensional array to be copied
+	 * @param bands is the output copy of the 3 dimensional array
+	 * @param z is the band to be copied
+	 */
+	private int[][] copy2DBand(int[][] origen, int[][]destination) {
+
+		for (int y = 0; y < origen.length ; y++) { 
+		for (int x = 0; x < origen[y].length ; x++) {
+			destination[y][x] = origen[y][x]; 
+		}}
+        
+        return destination;
+	}
+	
+	
+	
+	private int getEfficientQstep(double[] rate, double[] Errors) {
+		//Initalization f qstep to 0 in purpose. If something wrong happens we encode the component lossless.
+		int selection = 0;
+		double minError = Double.MAX_VALUE;
+		double minRate = Double.MAX_VALUE;
+		boolean found = false;
+		double previousRate = Double.MAX_VALUE;
+		for(int i = 0; i < N; i++){
+			
+			if(rate[i] <= targetRate){
+				found = true;
+				if(minError > Errors[i]){
+					selection = i;
+					minError =  Errors[i];
+				}
+				
+				
+			}
+			//System.out.println(i+" "+quantizationStepList.get(i)+" "+found+" "+height+" "+width+" "+rate[i]+" "+targetRate+" "+Errors[i]);
+		}
+		
+		if(found == false){
+			//System.out.println("============");
+			for(int i = 0; i < N; i++){
+				if(rate[i] < minRate && previousRate - rate[i] > 0.1){
+					minRate = rate[i];
+					selection = i;
+				}
+				previousRate = rate[i];
+				
+			}
+			//System.out.println("minRate: "+quantizationStepList.get(selection)+" "+selection+" "+found+" "+height+" "+width+" "+minRate);
+			for(int i = selection; i < N; i++){
+				if(Errors[i] < minError){
+					minError = Errors[i];
+					selection = i;
+				}
+			}
+			//System.out.println("minError: "+quantizationStepList.get(selection)+" "+selection+" "+found+" "+height+" "+width+" "+minError);
+			//System.out.println("============");
+		}
+		//System.out.println("------> "+quantizationStepList.get(selection)+" "+selection+" "+rate[selection]+" "+rate[selection]+" "+Errors[selection]);
+		
+		//System.out.println(adaptiveTargetRate+" "+targetRate+" "+rate[selection]);
+		//adaptiveTargetRate = adaptiveTargetRate + targetRate - (float)rate[selection];
+		//System.out.println(" --> "+adaptiveTargetRate+" "+targetRate+" "+rate[selection]);
+		return selection;
+	}
+	
+	/**
+	 * this method writes in binary files the match lists for each band
+	 * 
+	 * @param matchList
+	 * @param band z
+	 */
+	private void writeMatchList(List<Integer> matchList, int band) {
+		FileBitOutputStream mlos = null;
+		
+		try{
+			File file = new File("mlist_"+band);
+	        FileOutputStream fileStream = new FileOutputStream(file);
+	        mlos = new FileBitOutputStream( new BufferedOutputStream(fileStream));
+	        for(Integer integ : matchList){
+				mlos.write(16,integ);
+			}
+	        
+	        mlos.close();
+		}catch(IOException e){
+			e.printStackTrace();
+		}
+	}
+
+
+	/**
+	 * Returns predicted samples matrix with the values updated, so it is easier to encode it.
+	 * 
+	 * @param matchList. List used to match symbols with new values. They will be just the indexes of where they are stored.
+	 * @param predicted samples of the original image.
+	 * @return new predicted samples matrix updated.
+	 */
+	private int[][] updateImage(List<Integer> matchList, int[][] predicted) {
+		int[][] newPred = new int[geo[CONS.HEIGHT]][geo[CONS.WIDTH]];
+		for (int y = 0; y < geo[CONS.HEIGHT]; y ++) {
+			for (int x = 0; x < geo[CONS.WIDTH]; x ++) {
+				newPred[y][x] = matchList.indexOf(predicted[y][x]);
+			}
+		}
+		
+		return newPred;
+	}
+}

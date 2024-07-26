@@ -1,0 +1,115 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[]{graphicx}
+\usepackage[]{times}
+\usepackage{geometry}
+\usepackage{framed}
+\usepackage[printonlyused,nohyperlinks,nolist]{acronym} % Acronyms
+\usepackage[pdfborder={0 0 0}, pdftitle={Gici Gstat Manual (version 2.1)}]{hyperref}
+
+\geometry{verbose,a4paper,tmargin=1.5cm,bmargin=2cm,lmargin=2cm,rmargin=2cm}
+\renewcommand{\baselinestretch}{1.2}
+
+% Verbatim example must still be changed manually...
+\newcommand{\me}{Gstat\relax }
+
+\title{Gici \me{} Manual \\ \small (version 2.1)}
+
+\author{
+GICI group \vspace{0.1cm} \\
+\small Department of Information and Communications Engineering \\
+\small Universitat Aut{\`o}noma Barcelona \\
+\small http://www.gici.uab.es  -  http://gici.uab.cat/GiciWebPage/downloads.php \\
+}
+
+\date{November 2011}
+
+\begin{document}
+\maketitle
+
+\section{Description}
+
+This software is an implementation of common statistics for 2D images and 3D images. The following statistics are included:
+
+\begin{itemize}
+\item Minimum and maximum values.
+\item Average.
+\item Center of image range.
+\item Number of pixels for specific values in total and percent.
+\item Energy of the image / energy of each component.
+\item Variance of the image / variance of each component.
+\item Entropy of the image / entropy of each component.
+\item Moran's I measure of each component / average Moran's I measure.
+\end{itemize}
+
+\section{Requirements}
+
+This software is programmed in Java, so you might need a JAVA Runtime Environment(JRE) to run this application.
+We have used SUN JAVA 1.5. 
+
+\begin{description}
+\item[JAI] The Java Advanced Imaging (JAI) library is used to load and save images in formats
+other than raw or pgm. The JAI library can be freely downloaded from \emph{http://java.sun.com}.
+\textbf{Note:} You don't need to have this library installed in order to compile the source code.
+\end{description}
+
+\section{Usage}
+
+The application is provided in a single file, a jar file (\emph{dist/\me{}.jar}), that contains the application.
+Along with the application, the source code is also provided. If you need to rebuild the jar file, you can use the \texttt{ant} command.
+
+To launch the application you can use the following command: 
+
+\begin{framed}
+\texttt{\$ java -Xmx1200m -jar dist/\me{}.jar --help}
+\end{framed}
+
+In a GNU/Linux environment you can also use the shell script \texttt{\me{}} situated at the root of the \me{} directory. 
+
+\begin{framed}
+\texttt{\$ ./\me{} --help}
+\end{framed}
+
+Two examples of usage are provided below:
+
+\begin{itemize}
+\item Calculate all the statistics for a 3D image and produce a summarized output.
+\begin{framed}%
+\vspace{-1em}%
+\begin{verbatim}
+
+$ ./Gstat -i "$INFILE-16bpppb-bigendian.raw" -ig $Z $Y $X 3 0 -f 1 
+\end{verbatim}%
+\vspace{-1em}%
+\end{framed}
+
+\item Calculate the minimum and maximum values for a 2D image.
+\begin{framed}%
+\vspace{-1em}%
+\begin{verbatim}
+
+$ ./Gstat -i "$INFILE-16bpppb-bigendian.raw" -ig 1 $Y $X 3 0 -s 2
+\end{verbatim}%
+\vspace{-1em}%
+\end{framed}
+\end{itemize}
+
+\section{Notes}
+
+More information about Moran's I measure can be found in
+\url{http://en.wikipedia.org/wiki/Moran\%27s_I}. The following
+local neighbour matrix is used:
+$$
+\left(
+\begin{tabular}{c c c}
+1 & 1 & 1 \\
+1 & 0 & 1 \\
+1 & 1 & 1 \\
+\end{tabular}
+\right)
+$$
+\ \\
+\ \\
+\noindent
+If you need further assistance, you might want to contact us directly.
+
+\end{document}

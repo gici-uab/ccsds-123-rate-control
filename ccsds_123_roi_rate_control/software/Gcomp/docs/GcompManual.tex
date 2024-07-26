@@ -1,0 +1,107 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[]{graphicx}
+\usepackage[]{times}
+\usepackage{geometry}
+\usepackage{framed}
+\usepackage[printonlyused,nohyperlinks,nolist]{acronym} % Acronyms
+
+\geometry{verbose,a4paper,tmargin=1.5cm,bmargin=2cm,lmargin=2cm,rmargin=2cm}
+\renewcommand{\baselinestretch}{1.2}
+
+% Verbatim example must still be changed manually...
+\newcommand{\me}{Gcomp\relax }
+
+\title{Gici \me{} manual \\ \small (version 2.0)}
+
+\author{
+GICI group \vspace{0.1cm} \\
+\small Department of Information and Communications Engineering \\
+\small Universitat Aut{\`o}noma Barcelona \\
+\small http://www.gici.uab.es  -  http://gici.uab.cat/GiciWebPage/downloads.php \\
+}
+
+\date{January 2010}
+
+\begin{document}
+\maketitle
+
+\section{Description}
+
+This software is an implementation of common metrics for 2D images and 3D images. The following metrics are included:
+\begin{description}
+\item[MAE] Mean Absolute Error.
+\item[PAE] Peak Absolute Error.
+\item[MSE] Mean Squared Error or P-MSE if mask and weights values are defined.
+\item[RMSE] Root Mean Squared Error.
+\item[ME] Mean Error.
+\item[SNR] Signal to Noise Ratio.
+\item[PSNR] Peak Signal to Noise Ratio.
+\item[PSNR-S] Peak Signal to Noise Ratio computed as in Salomon's book.
+\item[SNRVAR] Signal to Noise Ratio calculated with the original image Variance.
+\item[EQUALITY] Perfect equality (true/false).
+\end{description}
+
+A definition of them can be found in \cite{AS08}.
+
+\section{Requirements}
+
+This software is programmed in Java, so you might need a JAVA Runtime Environment(JRE) to run this application.
+We have used SUN JAVA 1.5. 
+
+\begin{description}
+\item[JAI] The Java Advanced Imaging (JAI) library is used to load and save images in formats
+other than raw or pgm. The JAI library can be freely downloaded from \emph{http://java.sun.com}.
+\textbf{Note:} You don't need to have this library installed in order to compile the source code.
+\end{description}
+
+\section{Usage}
+
+The application is provided in a single file, a jar file (\emph{dist/\me{}.jar}), that contains the application.
+Along with the application, the source code is also provided. If you need to rebuild the jar file, you can use the \texttt{ant} command.
+
+To launch the application you can use the following command: 
+
+\begin{framed}
+\texttt{\$ java -Xmx1200m -jar dist/\me{}.jar --help}
+\end{framed}
+
+In a GNU/Linux environment you can also use the shell script \texttt{\me{}} situated at the root of the \me{} directory. 
+
+\begin{framed}
+\texttt{\$ ./\me{} --help}
+\end{framed}
+
+Two examples of usage are provided below:
+
+\begin{itemize}
+\item Compare two 3D images using all the metrics and produce a summarized output.
+\begin{framed}%
+\vspace{-1em}%
+\begin{verbatim}
+$ ./Gcomp -i1 "$INFILE-16bpppb-bigendian.raw" -ig1 $Z $Y $X 3 0 \
+              -i2 "$OUTFILE-16bpppb-bigendian.raw" -ig2 $Z $Y $X 3 0 \
+              -f 1
+\end{verbatim}%
+\vspace{-1em}%
+\end{framed}
+
+\item Compare two 2D images using only PSNR.
+\begin{framed}%
+\vspace{-1em}%
+\begin{verbatim}
+$ ./Gcomp -i1 "$INFILE-16bpppb-bigendian.raw" -ig1 1 $Y $X 3 0 \
+            -i2 "$OUTFILE-16bpppb-bigendian.raw" -ig2 1 $Y $X 3 0 \
+            -m 7
+\end{verbatim}%
+\vspace{-1em}%
+\end{framed}
+\end{itemize}
+
+\section{Notes}
+
+If you need further assistance, you might want to contact us directly.
+
+\bibliographystyle{IEEEtran}
+\bibliography{IEEEabrv,biblio}
+
+\end{document}

@@ -1,0 +1,98 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[]{graphicx}
+\usepackage[]{times}
+\usepackage{geometry}
+\usepackage{framed}
+\usepackage[printonlyused,nohyperlinks,nolist]{acronym} % Acronyms
+
+\geometry{verbose,a4paper,tmargin=1.5cm,bmargin=2cm,lmargin=2cm,rmargin=2cm}
+\renewcommand{\baselinestretch}{1.2}
+
+% Verbatim example must still be changed manually...
+\newcommand{\me}{ffc\relax }
+
+\title{Gici File Format Converter Manual \\ \small (version 2.0)}
+
+\author{
+GICI group \vspace{0.1cm} \\
+\small Department of Information and Communications Engineering \\
+\small Universitat Aut{\`o}noma Barcelona \\
+\small http://www.gici.uab.es  -  http://gici.uab.cat/GiciWebPage/downloads.php \\
+}
+
+\date{January 2010}
+
+\begin{document}
+\maketitle
+
+\section{Description}
+
+This software is a file format converter and much more, including:
+\begin{itemize}
+ \item File format conversion.
+ \item Coefficient Rounding.
+ \item Value saturation.
+ \item Spatial / Spectral Wavelets.
+ \item Cropping.
+ \item Spectral DPCM.
+ \item Generalized transposition (\textit{i.e.,} component permutations).
+\end{itemize}
+
+\section{Requirements}
+
+This software is programmed in Java, so you might need a JAVA Runtime Environment(JRE) to run this application.
+We have used SUN JAVA 1.5. 
+
+\begin{description}
+\item[JAI] The Java Advanced Imaging (JAI) library is used to load and save images in formats
+other than raw or pgm. The JAI library can be freely downloaded from \emph{http://java.sun.com}.
+\textbf{Note:} You don't need to have this library installed in order to compile the source code.
+\end{description}
+
+\section{Usage}
+
+The application is provided in a single file, a jar file (\emph{dist/\me{}.jar}), that contains the application.
+Along with the application, the source code is also provided. If you need to rebuild the jar file, you can use the \texttt{ant} command.
+
+To launch the application you can use the following command: 
+
+\begin{framed}
+\texttt{\$ java -Xmx1200m -jar dist/\me{}.jar --help}
+\end{framed}
+
+In a GNU/Linux environment you can also use the shell script \texttt{\me{}} situated at the root of the \me{} directory. 
+
+\begin{framed}
+\texttt{\$ ./\me{} --help}
+\end{framed}
+
+Two examples of usage are provided below:
+
+\begin{itemize}
+\item Convert an input big-endian floating-point image into a integer 16bit little-endian image.
+\begin{framed}%
+\vspace{-1em}%
+\begin{verbatim}
+$ ./ffc -i "$INFILE-float-bigendian.raw" -ig $Z $Y $X 6 0 \
+        -o "$OUTFILE-16bpppb-littleendian.raw" -og $Z $Y $X 3 1
+\end{verbatim}%
+\vspace{-1em}%
+\end{framed}
+
+\item Apply 5 levels of spectral wavelet transform.
+\begin{framed}%
+\vspace{-1em}%
+\begin{verbatim}
+$ ./ffc -i "$INFILE-16bpppb-bigendian.raw" -ig $Z $Y $X 3 0 \
+        -o "$OUTFILE-16bpppb-bigendian.raw" -og $Z $Y $X 3 0 \
+        --spectralWaveletLevel 5
+\end{verbatim}%
+\vspace{-1em}%
+\end{framed}
+\end{itemize}
+
+\section{Notes}
+
+If you need further assistance, you might want to contact us directly.
+
+\end{document}

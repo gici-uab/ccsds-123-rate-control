@@ -1,0 +1,115 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[]{graphicx}
+\usepackage[]{times}
+\usepackage{geometry}
+\usepackage{framed}
+\usepackage[printonlyused,nohyperlinks,nolist]{acronym} % Acronyms
+
+\geometry{verbose,a4paper,tmargin=1.5cm,bmargin=2cm,lmargin=2cm,rmargin=2cm}
+\renewcommand{\baselinestretch}{1.2}
+
+% Verbatim example must still be changed manually...
+\newcommand{\me}{emporda\relax }
+
+\title{Single-Pass Rate Control with Lossless Region of Interest Coding for Pathology Imaging Software Manual \\ \small (version 1.0)}
+
+\author{
+GICI group \vspace{0.1cm} \\
+\small Department of Information and Communications Engineering \\
+\small Universitat Aut{\`o}noma Barcelona \\
+\small http://www.gici.uab.es  -  http://gici.uab.cat/GiciWebPage/downloads.php \\
+}
+
+\date{July 2020}
+
+\begin{document}
+\maketitle
+
+\section{Description}
+
+This software is an implementation of a Single-Pass Rate Control with Lossless Region of Interest Coding employed in a recent research for coding Pathology Imaging. This research in under revision for the IEEE-ACCESS journal  (https://ieeeaccess.ieee.org).
+
+\noindent 
+The zip file contains three folders:
+
+\begin{description}
+\item[experiments] contains a variety of scripts, which \textbf{run.sh} is the script to be execute to reproduce, partially, the experiments provided in the manuscript.
+\item[images] contains the images and the Region of Interest masks used in the experimental results presented. Only images and masks LYMP1, LYMP2, and LYMP3 are provided.
+\item[software] folder stores all the software needed to reproduce the experiments. QEmpordaACROI contains the algorithm implementation of the Single-Pass Rate Control with Lossless Region of Interest Coding
+\end{description}
+
+\section{Requirements}
+
+This software is programmed in Java, so you might need a JAVA Runtime Environment(JRE) to run this application.
+We have used SUN JAVA 1.8. To execute the software some scripts have been provided, thus a bash environment is also required. All this software have been validated in a macOS Catalina v.10.15.5.
+
+\noindent
+In case you are interested into recompile the sourcecode we recommend to employ the Apache ant software tool (https://ant.apache.org).
+
+\section{Usage}
+
+The application is provided in QEmpordaACROI within a single file, a jar file (\emph{dist/\me{}.jar}), that contains the application.
+Along with the application, the source code is also provided. If you need to rebuild the jar file, you can use the \texttt{ant} command.
+
+To launch the application you can use the following command: 
+
+\begin{framed}
+\texttt{\$ java -Xmx1200m -jar dist/\me{}.jar --help}
+\end{framed}
+
+In a GNU/Linux environment you can also use the shell script \texttt{\me{}} situated at the root of the \me{} directory. 
+
+\begin{framed}
+\texttt{\$ ./\me{} --help}
+\end{framed}
+
+To reproduce the experiments partially execute run.sh located in the experiments folder. It will produce the following output:
+
+\begin{framed}
+\texttt{\small NCI01.3\_1280\_1280\_1\_0\_8\_0\_0\_1.raw\_rc\_3\_roi\_1\_qstepROI\_1\_ccsds123\_roicoding\_ec\_2\_cm\_1.results
+\small 0.067:1.039183:0.83594567:0.20319499:223.0:0.0:223.0:11.839154:Infinity:11.257168:205482
+\small 0.133:1.048079:0.83357257:0.21446452:246.0:0.0:246.0:12.676417:Infinity:12.094431:205482
+\small NCI01.3\_1280\_1280\_1\_0\_8\_0\_0\_1.raw\_rc\_3\_roi\_1\_qstepROI\_1\_ccsds123\_roicoding\_ec\_2\_cm\_12.results
+\small 0.067:0.689606:0.6226139:0.06694987:221.0:0.0:221.0:14.887566:Infinity:14.30558:205482
+\small 0.133:0.757404:0.62444496:0.13291667:95.0:0.0:95.0:21.326265:Infinity:20.74428:205482
+}
+\end{framed}
+
+The description of the first line of the out is:
+
+\begin{description}
+\item[NCI01.3\_1280\_1280\_1\_0\_8\_0\_0\_1.raw] is the encoded and decoded image.
+\item[rc\_3] the rate control strategy employed. Further details see Coder.java line 562.
+\item[qstepROI\_1] the Region of Interest is encoded with a qstep = 1, thus is losslessly recovered.
+\item[ec\_2\_cm\_1] indicates the context modelling employed. cm = 1 refers to single context modelling and cm = 12 to full context modelling.
+\end{description}
+
+The rest of the lines contains the following information delimited by :.
+
+\begin{description}
+\item[output1] is the target bit-rate
+\item[output2] is the total bits per sample
+\item[output3] is the bits per sample employed for the Region of Interest 
+\item[output4] is the bits per sample employed for the non Region of Interest 
+\item[output5] is the Peak Absolute Error for the entire image
+\item[output6] is the Peak Absolute Error for the Region of Interest
+\item[output7] is the Peak Absolute Error for the non Region of Interest
+\item[output8] is the Signal Noise Ratio Error for the entire image
+\item[output9] is the Signal Noise Ratio Error for the Region of Interest
+\item[output10] is the Signal Noise Ratio Error for the non Region of Interest
+\item[output11] number of Region of Interest Samples
+
+
+\end{description}
+
+
+
+
+\section{Notes}
+
+If you need further assistance, you might want to contact us directly.
+
+\bibliographystyle{IEEEtran}
+\bibliography{IEEEabrv,biblio}
+
+\end{document}
